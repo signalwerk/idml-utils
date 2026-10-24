@@ -1,0 +1,27 @@
+[package]
+name = "idml"
+version = "0.1.0"
+description = "Read, build and write Adobe InDesign IDML packages with a model generated from InDesign's schemas"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[package.metadata.idml]
+# The package schemas the model in src/model/ is generated from.
+schema = "../../schemas/21.5.0.64/package"
+# Every <build>/package (or <build>/single) below it dates the schema items.
+history = "../../schemas"
+# How documents of older versions are read: a rule for every item they differ in.
+upgrades = "schema-upgrades.tsv"
+
+[dependencies]
+roxmltree = { workspace = true }
+zip = { workspace = true }
+
+[dev-dependencies]
+idml-codegen = { workspace = true }
+
+[lints]
+workspace = true

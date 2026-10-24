@@ -1,0 +1,16 @@
+[package]
+name = "idml-codegen"
+version = "0.1.0"
+description = "Generates the idml crate's document model from InDesign's RELAX NG schemas"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+roxmltree = { workspace = true }
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

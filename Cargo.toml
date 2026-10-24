@@ -1,0 +1,28 @@
+[workspace]
+resolver = "3"
+members = ["crates/idml", "crates/idml-codegen"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/signalwerk/idml-utils"
+
+[workspace.dependencies]
+idml = { path = "crates/idml" }
+idml-codegen = { path = "crates/idml-codegen" }
+roxmltree = "0.21"
+sha2 = "0.11"
+zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+unimplemented = "deny"
+todo = "deny"
+unreachable = "deny"

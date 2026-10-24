@@ -1,0 +1,182 @@
+# How documents of older IDML versions are read into the current model.
+#
+# Every schema item that an older version has and the current one has not, or
+# has differently, needs a rule. idml-codegen fails if one is missing (and
+# suggests it) or not needed, then turns the rules into edits the reader makes
+# to older documents (src/model/upgrades.rs) and shows them in the reports.
+#
+# item  a schema item, as in schema-history.tsv
+# rule  drop             leave it out; the reader warns. Dropping a definition
+#                        drops its element everywhere; dropping an element
+#                        drops what it contains
+#       wrap <A>/<B>     put the element into new <A><B> elements
+#       default "v"      an attribute that became required: v where missing
+#       value "v"        an enumeration value: read as v instead
+#       keep             every old value is still valid
+# note  why; required for drop
+item	rule	note
+#
+# 6.0 (CS4)
+FindChangeBevelAndEmbossSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeBlendingSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeDirectionalFeatherSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeDropShadowSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeFeatherSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeGradientFeatherSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeInnerGlowSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeInnerShadowSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeOuterGlowSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+FindChangeSatinSetting_Object	drop	find/change criteria, not document content: a copy of the effect setting whose values may also be Nothing
+Cell_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Cell_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Cell_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<CrossReferenceSource>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<DTD>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<ParagraphDestination>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Change_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Footnote_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<CrossReferenceSource>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<DTD>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<ParagraphDestination>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HiddenText_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<ParagraphDestination>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+HyperlinkTextSource_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Note_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+Story_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XMLElement_Object/<CrossReferenceSource>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XMLElement_Object/<ParagraphDestination>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Button>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<EPSText>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Footnote>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<FormField>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<GraphicLine>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Group>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Note>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Oval>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Polygon>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Rectangle>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<Table>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<TextFrame>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+XmlStory_Object/<TextVariableInstance>	wrap <CharacterStyleRange>	anchored objects and text markers sit in a character range since 7.0
+EPS_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+EPS_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+EPS_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+Image_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+Image_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+Image_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+ImportedPage_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+ImportedPage_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+ImportedPage_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PDF_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PDF_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PDF_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PICT_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PICT_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+PICT_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+WMF_Object/<ContentTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+WMF_Object/<FillTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+WMF_Object/<StrokeTransparencySetting>	drop	a graphic has no fill, stroke or content of its own; its effects are its TransparencySetting
+GraphicLine_Object/<ContentTransparencySetting>	drop	since 7.0 the effects of a frame's content are those of the graphic in it
+Group_Object/<ContentTransparencySetting>	drop	since 7.0 the effects of a frame's content are those of the graphic in it
+Oval_Object/<ContentTransparencySetting>	drop	since 7.0 the effects of a frame's content are those of the graphic in it
+Polygon_Object/<ContentTransparencySetting>	drop	since 7.0 the effects of a frame's content are those of the graphic in it
+Rectangle_Object/<ContentTransparencySetting>	drop	since 7.0 the effects of a frame's content are those of the graphic in it
+Link_Object1	drop	a link inside a link; links have no child links since 7.0
+Button_Object/<CloseWindowBehavior>	drop	not a button behavior since 7.0
+Button_Object/<QuitBehavior>	drop	not a button behavior since 7.0
+State_Object/<Button>	drop	a state holds no buttons, form fields or imported pages since 7.0
+State_Object/<FormField>	drop	a state holds no buttons, form fields or imported pages since 7.0
+State_Object/<ImportedPage>	drop	a state holds no buttons, form fields or imported pages since 7.0
+State_Object/@Name	drop	states have no name since 7.0
+State_Object/@Statetype	drop	since 7.0 a <Properties>/<Statetype> element, which the upgrade does not create
+GaijiOwnedItemObject_Object/@Self	drop	has no identity since 7.0
+XmlStory_Object/<GridDataInformation>	drop	the XML backing story has no story settings since 7.0
+XmlStory_Object/<MetadataPacketPreference>	drop	the XML backing story has no story settings since 7.0
+XmlStory_Object/<StoryPreference>	drop	the XML backing story has no story settings since 7.0
+ViewZoomStyle_EnumValue="Reflow"	drop	not a PDF view option since 7.0
+ViewZoomStyle_EnumValue="RotateCCW"	drop	not a PDF view option since 7.0
+ViewZoomStyle_EnumValue="RotateCW"	drop	not a PDF view option since 7.0
+CrossReferenceSource_Object/@AppliedFormat	default ""	required since 7.0; an older document that leaves it out names no format
+HyperlinkPageDestination_Object/@Name	default ""	required since 7.0; empty where an older document has no name
+HyperlinkTextDestination_Object/@Name	default ""	required since 7.0; empty where an older document has no name
+HyperlinkURLDestination_Object/@Name	default ""	required since 7.0; empty where an older document has no name
+ParagraphDestination_Object/@Name	default ""	required since 7.0; empty where an older document has no name
+MovieBehavior_Object/@Operation	keep	PlayOperations became MoviePlayOperations, which has all its values
+XMLInstruction_Object1/@Target	keep	required became optional
+#
+# 6.0 to 15.0
+XMLInstruction_Object/@Target	default ""	optional in some parts of older versions
+BevelAndEmbossSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+DropShadowSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+InnerGlowSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+InnerShadowSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+OuterGlowSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+SatinSetting_Object/@Size	keep	the range grew from 0–144 to 0–1000
+PageTransitionTypeOptions_EnumValue="PageTurnTransition"	drop	not a page transition since 15.0
+#
+# 7.5 (CS5.5) and 8.0 (CS6)
+Pumpkin_Object	drop	a page item only the 7.5 and 8.0 schemas have
+ArrowHead_EnumValue="PumpkinArrowHead"	drop	goes with Pumpkin
+CornerOptions_EnumValue="PumpkinCorner"	drop	goes with Pumpkin
+ImageSizeOption_EnumValue="SizeRelativeToPageWidth"	value "SizeRelativeToTextFlow"	replaced in the same version by SizeRelativeToTextFlow
+NumberedListExportOption_EnumValue="StaticOrderedList"	value "OrderedList"	the closest remaining option
+StyleSheetExportOption_EnumValue="ExternalCSS"	drop	not an option since 8.0
+StyleSheetExportOption_EnumValue="StyleNameOnly"	drop	not an option since 8.0
+EpubVersion_EnumValue="Epub3WithLayout"	value "Epub3"	the closest remaining option
+#
+# 10.0 (CC 2014) and 11.0 (CC 2015)
+ColorGroup_Object/@IsRootColorGroup	default "false"	required since 15.0
+ColorGroup_Object/@Name	default ""	required since 15.0
+#
+# 15.0 (2020)
+TransformAttributeOption_Object/@TransformAttrHeight	keep	the range grew
+TransformAttributeOption_Object/@TransformAttrWidth	keep	the range grew
+TransformAttributeOption_Object/@TransformAttrX	keep	the range grew
+TransformAttributeOption_Object/@TransformAttrY	keep	the range grew

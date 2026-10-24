@@ -1,0 +1,8 @@
+.DS_Store
+/target
+
+# Local schema snapshots, restored with ./schemas/download.sh
+/schemas/*/
+
+# for notes and local tests
+**/__*
