@@ -1,7 +1,7 @@
 //! `cargo run -p idml-codegen [-- --check] [-- SCHEMA_DIR]`
 //!
 //! Regenerates `crates/idml/src/model/`, `crates/idml/schema-map.tsv`,
-//! `crates/idml/schema-history.tsv` and `docs/schema-changes/` from the
+//! `crates/idml/schema-history.tsv` and the GitHub Pages site in `docs/` from the
 //! package schemas configured in `crates/idml/Cargo.toml`, or from
 //! `SCHEMA_DIR`. With `--check`, only reports whether they are up to date.
 

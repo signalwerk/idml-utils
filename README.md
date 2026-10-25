@@ -12,11 +12,11 @@ reading.
 | `crates/idml/schema-map.tsv`      | Every schema item, the Rust item representing it, and the IDML version that introduced it                   |
 | `crates/idml/schema-history.tsv`  | Every schema item of every version: introduced, moved, changed, removed                                     |
 | `crates/idml/schema-upgrades.tsv` | How documents of older versions are read: a rule for every schema difference                                |
-| `docs/schema-changes/`            | HTML reports of the changes from one version to the next (open `index.html`)                                |
+| `docs/`                          | Generated GitHub Pages site: schema changes and upgrade reports (open `docs/index.html`)                    |
 | `crates/idml-codegen`             | Schema → model generator, and the test oracle                                                               |
 | `schemas/`                        | Download script, checksums and documentation; downloaded schema folders are local and ignored by Git        |
 | `scripts/generate-idml-schema/`   | Generates schemas for the installed InDesign (macOS)                                                        |
-| `docs/architecture.md`            | Design, mapping rules, completeness argument                                                                |
+| `architecture.md`                | Design, mapping rules, completeness argument                                                                |
 
 ## Build
 
@@ -84,6 +84,27 @@ reports. To check them without writing files:
 ```sh
 cargo run --locked -p idml-codegen -- --check
 ```
+
+## Preview and publish the documentation
+
+The generator writes the complete static site to `docs/`, starting with
+`docs/index.html`. Open that file in a browser, or serve the site locally
+with Python 3:
+
+```sh
+python3 -m http.server 8000 --directory docs
+# open http://localhost:8000/
+```
+
+Commit the generated `docs/` files along with generator changes. In the
+repository's **Settings → Pages**, select **Deploy from a branch**, choose
+the branch containing these files and the **/docs** folder, then save.
+See [GitHub's publishing source instructions](https://docs.github.com/en/pages/getting-started-with-github-pages/configuring-a-publishing-source-for-your-github-pages-site).
+
+The generated `.nojekyll` file lets GitHub serve the HTML and CSS directly.
+All site links are relative, so they work under the repository's Pages path.
+`docs/` contains only generated files; regeneration removes stale files there.
+The [architecture notes](architecture.md) live outside the published site.
 
 ## Update to a new InDesign version
 

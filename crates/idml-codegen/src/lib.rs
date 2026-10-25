@@ -69,7 +69,7 @@ fn configured(crate_dir: &Path, key: &str) -> Result<Option<PathBuf>, String> {
 
 /// Directories holding only generated files: files in them that are not
 /// generated any more are stale.
-const GENERATED_DIRS: [&str; 2] = ["crates/idml/src/model", "docs/schema-changes"];
+const GENERATED_DIRS: [&str; 2] = ["crates/idml/src/model", "docs"];
 
 /// The generated files, by path relative to the workspace. With `history`,
 /// the snapshots below it date every item, the `upgrades` rules are checked
@@ -90,7 +90,7 @@ pub fn generate(schema_dir: &Path, history: Option<&Path>, upgrades: Option<&Pat
         upgrades_rs = upgrade::rust(Some((&history, &upgrades)), emit::HEADER);
         files.insert("crates/idml/schema-history.tsv".to_owned(), history.tsv());
         for (name, text) in report::html(&history, &model, &upgrades) {
-            files.insert(format!("docs/schema-changes/{name}"), text);
+            files.insert(format!("docs/{name}"), text);
         }
     }
     files.insert("crates/idml/src/model/upgrades.rs".to_owned(), upgrades_rs);

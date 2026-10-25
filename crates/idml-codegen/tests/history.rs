@@ -48,7 +48,7 @@ fn shared_inline_types_take_their_earliest_occurrence() {
     // Nothing of 7.0 is gone or different in 8.0: no upgrade rules needed.
     let upgrades = upgrade::check(&history, Vec::new()).unwrap();
     let pages = report::html(&history, &model, &upgrades);
-    assert_eq!(pages.keys().map(String::as_str).collect::<Vec<_>>(), ["7.0-to-8.0.html", "index.html", "style.css", "upgrades.html"]);
+    assert_eq!(pages.keys().map(String::as_str).collect::<Vec<_>>(), [".nojekyll", "7.0-to-8.0.html", "index.html", "style.css", "upgrades.html"]);
     let page = &pages["7.0-to-8.0.html"];
     assert!(page.contains("<code>B_Object</code> <span class=\"badge added\">added</span> <span class=\"rust\">B</span>"), "{page}");
     assert!(page.contains("<td><code>&lt;B&gt;</code></td><td><span>zero or more</span></td><td><code>RootFile.<wbr>b</code></td>"), "{page}");

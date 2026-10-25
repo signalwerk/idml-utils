@@ -18,7 +18,7 @@ schemas/<build>/package/*.rnc
        upgrade.rs check crates/idml/schema-upgrades.tsv against them → src/model/upgrades.rs
        emit.rs    Rust source            → crates/idml/src/model/*.rs
        map.rs     schema item → Rust item → crates/idml/schema-map.tsv
-       report.rs  changes from version to version (HTML) → docs/schema-changes/
+       report.rs  changes from version to version (HTML) → docs/
   └─ idml (runtime)
        model/     generated types (checked in, never edited)
        value.rs   XML Schema datatypes, checked newtypes, enum/range macros
@@ -57,7 +57,7 @@ differ from what the generator produces for the schema directory named in
 
 Names follow Rust conventions (`XMLElement` → `XmlElement`, `@Self` →
 `self_`). Every type, field and variant documents its schema item; the
-complete list is [`schema-map.tsv`](../crates/idml/schema-map.tsv).
+complete list is [`schema-map.tsv`](crates/idml/schema-map.tsv).
 
 ## Why the model is complete
 
@@ -110,7 +110,7 @@ strings in the schema and are not checked), and the single-file schema
 Every type, field and variant says which IDML version introduced it
 (`Since IDML 8.0.`); `schema-history.tsv` lists every schema item of every
 version with when it appeared, changed and was removed, and
-[`schema-changes/`](schema-changes/index.html) shows the same per step from
+[`docs/`](docs/index.html) shows the same per step from
 one version to the next: counts by kind, then each added, removed or changed
 item by definition, with its schema before and after and its Rust item.
 
@@ -177,7 +177,7 @@ version.
   rules are suggested as `wrap`.
 
 The rules and their reasons are listed in
-[`schema-changes/upgrades.html`](schema-changes/upgrades.html) and next to
+[`docs/upgrades.html`](docs/upgrades.html) and next to
 each change in the reports.
 
 ## Decisions
@@ -209,7 +209,7 @@ each change in the reports.
 5. Review `git diff crates/idml/schema-map.tsv crates/idml/schema-history.tsv`:
    added, removed and changed items, with their Rust representation and the
    version. The new snapshot joins the history by being in `schemas/`; its
-   step is the last page of `docs/schema-changes/`.
+   step is the last page of `docs/`.
 6. `cargo test`. Adapters then fail to compile where they match on changed
    enums or build changed structs.
 
