@@ -803,6 +803,7 @@ CharacterStyleRange_Object/<Content>/text()	6.0		text
 CharacterStyleRange_Object/<CrossReferenceSource>	6.0		*
 CharacterStyleRange_Object/<DTD>	6.0		*
 CharacterStyleRange_Object/<EPSText>	6.0		*
+CharacterStyleRange_Object/<Endnote>	> 11.0 <= 15.0		*
 CharacterStyleRange_Object/<EndnoteRange>	> 11.0 <= 15.0		*
 CharacterStyleRange_Object/<Footnote>	6.0		*
 CharacterStyleRange_Object/<FormField>	6.0		*
@@ -986,6 +987,7 @@ CharacterStyleRange_Object/<Properties>/<UnderlineType>|type=object xsd:string	6
 CharacterStyleRange_Object/<Properties>/<UnderlineType>|type=string xsd:string	6.0		
 CharacterStyleRange_Object/<Rectangle>	6.0		*
 CharacterStyleRange_Object/<Table>	6.0		*
+CharacterStyleRange_Object/<TextBox>	8.0		*
 CharacterStyleRange_Object/<TextFrame>	6.0		*
 CharacterStyleRange_Object/<TextVariableInstance>	6.0		*
 CharacterStyleRange_Object/<XMLComment>	6.0		*
@@ -2703,6 +2705,11 @@ EndnoteOption_Object/@EndnoteTitle	> 11.0 <= 15.0		optional xsd:string
 EndnoteOption_Object/@EndnoteTitleStyle	> 11.0 <= 15.0		optional xsd:string
 EndnoteOption_Object/@StartEndnoteNumberAt	> 11.0 <= 15.0		optional xsd:int {minInclusive="1" maxInclusive="100000"}
 EndnoteRange_Object	> 11.0 <= 15.0		element EndnoteRange
+EndnoteRange_Object/<CharacterStyleRange>	> 11.0 <= 15.0		*
+EndnoteRange_Object/<Content>	> 11.0 <= 15.0		*
+EndnoteRange_Object/<Content>/text()	> 11.0 <= 15.0		text
+EndnoteRange_Object/<HyperlinkTextSource>	> 11.0 <= 15.0		*
+EndnoteRange_Object/<ParagraphStyleRange>	> 11.0 <= 15.0		*
 EndnoteRange_Object/<Properties>	> 11.0 <= 15.0		?
 EndnoteRange_Object/<Properties>/<Label>	> 11.0 <= 15.0		?
 EndnoteRange_Object/<Properties>/<Label>/<KeyValuePair>	> 11.0 <= 15.0		*

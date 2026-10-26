@@ -1,0 +1,10 @@
+# Content InDesign writes but its own schemas do not allow. idml-codegen adds
+# each pattern to the content of the element definition, in every schema
+# snapshot that defines the definition and every name the pattern refers to:
+# into the interleave of child elements if the content has one, else after
+# the existing content.
+#
+# definition	pattern	evidence
+CharacterStyleRange_Object	Endnote_Object*	InDesign exports of DOMVersion 14.0 to 21.5 have <Endnote> in text, where the endnote reference is; the schemas allow it only in <Story>.
+CharacterStyleRange_Object	TextBox_Object*	An InDesign export of DOMVersion 19.0 has a text field anchored in a table cell's text; the schemas allow only <FormField> there.
+EndnoteRange_Object	(ParagraphStyleRange_Object* & CharacterStyleRange_Object* & HyperlinkTextSource_Object* & element Content {text}*)	InDesign exports of DOMVersion 14.0 to 21.5 have the endnote's text in <EndnoteRange>: <Content>, <CharacterStyleRange>, <ParagraphStyleRange> and <HyperlinkTextSource>; the schemas allow no content.

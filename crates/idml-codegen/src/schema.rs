@@ -104,6 +104,7 @@ impl Files {
             }
             parsed.insert(rel, file);
         }
+        amend(&mut parsed, ids)?;
         let indesign_version = match versions.len() {
             0 => None,
             1 => versions.into_iter().next(),
@@ -240,6 +241,94 @@ impl Schema {
         }
         seen
     }
+}
+
+/// Content InDesign writes but its schemas do not allow
+/// (`crates/idml/schema-amendments.tsv`): each row adds a pattern to the
+/// content of an element definition.
+#[derive(Debug, Clone)]
+pub struct Amendment {
+    pub definition: String,
+    pub pattern: String,
+    pub evidence: String,
+}
+
+/// The amendments of `crates/idml/schema-amendments.tsv`.
+pub fn amendments() -> Result<Vec<Amendment>, String> {
+    const FILE: &str = include_str!("../../idml/schema-amendments.tsv");
+    let mut out = Vec::new();
+    for (i, line) in FILE.lines().enumerate() {
+        if line.starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        let [definition, pattern, evidence] = line.split('\t').collect::<Vec<_>>()[..] else {
+            return Err(format!("schema-amendments.tsv:{}: expected definition, pattern and evidence", i + 1));
+        };
+        out.push(Amendment { definition: definition.to_owned(), pattern: pattern.to_owned(), evidence: evidence.to_owned() });
+    }
+    Ok(out)
+}
+
+/// Applies the amendments to every file that defines their definition, if
+/// the files define every name their pattern refers to.
+fn amend(parsed: &mut BTreeMap<String, rnc::File>, ids: &mut Ids) -> Result<(), String> {
+    let defined: BTreeSet<String> = parsed.values().flat_map(|f| f.defines.iter().map(|d| d.name.clone())).collect();
+    for a in amendments()? {
+        let snippet = rnc::parse(&format!("amendment = {}", a.pattern), ids).map_err(|e| format!("amendment of {}: {e}", a.definition))?;
+        let Some(pattern) = snippet.defines.into_iter().next().map(|d| d.pattern) else {
+            return Err(format!("amendment of {}: no pattern", a.definition));
+        };
+        let mut refs = Vec::new();
+        pattern.walk(&mut |p| {
+            if let Kind::Ref(r) = &p.kind {
+                refs.push(r.clone());
+            }
+        });
+        if !defined.contains(&a.definition) || refs.iter().any(|r| !defined.contains(r)) {
+            continue;
+        }
+        for d in parsed.values_mut().flat_map(|f| f.defines.iter_mut()).filter(|d| d.name == a.definition) {
+            let Kind::Element(_, content) = &mut d.pattern.kind else {
+                return Err(format!("amendment of {}: not an element definition", a.definition));
+            };
+            add_content(content, renumbered(&pattern, ids), ids);
+        }
+    }
+    Ok(())
+}
+
+/// Adds `extra` to an element's content: into its interleave of child
+/// elements, if it has one, else after the content.
+fn add_content(content: &mut Pattern, extra: Pattern, ids: &mut Ids) {
+    match &mut content.kind {
+        Kind::Interleave(items) => items.push(extra),
+        Kind::Group(items) => match items.iter_mut().rev().find(|p| matches!(p.kind, Kind::Interleave(_))) {
+            Some(Pattern { kind: Kind::Interleave(inner), .. }) => inner.push(extra),
+            _ => items.push(extra),
+        },
+        Kind::Empty => *content = extra,
+        _ => {
+            let old = std::mem::replace(content, Pattern { id: ids.next(), kind: Kind::Empty });
+            *content = Pattern { id: ids.next(), kind: Kind::Group(vec![old, extra]) };
+        }
+    }
+}
+
+/// A copy of `p` with new node ids, so each file's copy has its own.
+fn renumbered(p: &Pattern, ids: &mut Ids) -> Pattern {
+    let kind = match &p.kind {
+        Kind::Element(n, c) => Kind::Element(n.clone(), Box::new(renumbered(c, ids))),
+        Kind::Attribute(n, c) => Kind::Attribute(n.clone(), Box::new(renumbered(c, ids))),
+        Kind::Group(ps) => Kind::Group(ps.iter().map(|c| renumbered(c, ids)).collect()),
+        Kind::Interleave(ps) => Kind::Interleave(ps.iter().map(|c| renumbered(c, ids)).collect()),
+        Kind::Choice(ps) => Kind::Choice(ps.iter().map(|c| renumbered(c, ids)).collect()),
+        Kind::Optional(c) => Kind::Optional(Box::new(renumbered(c, ids))),
+        Kind::ZeroOrMore(c) => Kind::ZeroOrMore(Box::new(renumbered(c, ids))),
+        Kind::OneOrMore(c) => Kind::OneOrMore(Box::new(renumbered(c, ids))),
+        Kind::List(c) => Kind::List(Box::new(renumbered(c, ids))),
+        other => other.clone(),
+    };
+    Pattern { id: ids.next(), kind }
 }
 
 fn collect_schemas(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {

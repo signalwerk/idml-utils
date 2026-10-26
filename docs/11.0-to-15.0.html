@@ -17,10 +17,10 @@
 <tr><th>Kind</th><th class="num">Added</th><th class="num">Moved</th><th class="num">Removed</th><th class="num">Changed</th><th class="num">Restored</th></tr>
 <tr><td>Definition</td><td class="num added">27</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
 <tr><td>Attribute</td><td class="num added">543</td><td class="num zero">0</td><td class="num zero">0</td><td class="num changed">2</td><td class="num zero">0</td></tr>
-<tr><td>Element</td><td class="num added">173</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+<tr><td>Element</td><td class="num added">178</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
 <tr><td>Enumeration value</td><td class="num added">56</td><td class="num zero">0</td><td class="num removed">1</td><td class="num zero">0</td><td class="num zero">0</td></tr>
 <tr><td>Choice branch</td><td class="num added">60</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
-<tr><td>Text content</td><td class="num added">3</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
+<tr><td>Text content</td><td class="num added">4</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td><td class="num zero">0</td></tr>
 </table></div>
 <h2>Definitions (92)</h2>
 <p class="muted">New definitions in green, removed ones struck through.</p>
@@ -88,6 +88,7 @@
 <div class="scroll"><table class="items">
 <colgroup><col class="c-change"><col class="c-item"><col class="c-schema"><col class="c-rust"></colgroup>
 <tr><th></th><th>Item</th><th>Schema</th><th>Rust</th></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;Endnote&gt;</code></td><td><span>zero or more</span></td><td><code>CharacterStyleRangeChild::Endnote</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;EndnoteRange&gt;</code></td><td><span>zero or more</span></td><td><code>CharacterStyleRangeChild::EndnoteRange</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;Properties&gt;/<wbr>&lt;ParagraphBorderColor&gt;</code></td><td><span>optional</span></td><td><code>CharacterStyleRangeProperties.<wbr>paragraph_border_color, ParagraphBorderColor, TextDefaultProperties.<wbr>paragraph_border_color</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;Properties&gt;/<wbr>&lt;ParagraphBorderColor&gt;|type=object xsd:string</code></td><td></td><td><code>ParagraphBorderColor::Object</code></td></tr>
@@ -345,10 +346,15 @@
 </section>
 <section id="EndnoteRange_Object">
 <h3><code>EndnoteRange_Object</code> <span class="badge added">added</span> <span class="rust">EndnoteRange</span></h3>
-<details><summary>5 items</summary>
+<details><summary>10 items</summary>
 <div class="scroll"><table class="items">
 <colgroup><col class="c-change"><col class="c-item"><col class="c-schema"><col class="c-rust"></colgroup>
 <tr><th></th><th>Item</th><th>Schema</th><th>Rust</th></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;CharacterStyleRange&gt;</code></td><td><span>zero or more</span></td><td><code>EndnoteRangeChild::CharacterStyleRange</code></td></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;Content&gt;</code></td><td><span>zero or more</span></td><td><code>EndnoteRangeChild::Content, GaijiOwnedItemObject.<wbr>content</code></td></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;Content&gt;/<wbr>text()</code></td><td><span>text</span></td><td><code></code></td></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;HyperlinkTextSource&gt;</code></td><td><span>zero or more</span></td><td><code>EndnoteRangeChild::HyperlinkTextSource</code></td></tr>
+<tr><td><span class="badge added">added</span></td><td><code>&lt;ParagraphStyleRange&gt;</code></td><td><span>zero or more</span></td><td><code>EndnoteRangeChild::ParagraphStyleRange</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;Properties&gt;</code></td><td><span>optional</span></td><td><code>EndnoteRange.<wbr>properties, EndnoteRangeProperties</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;Properties&gt;/<wbr>&lt;Label&gt;</code></td><td><span>optional</span></td><td><code>EndnoteRangeProperties.<wbr>label</code></td></tr>
 <tr><td><span class="badge added">added</span></td><td><code>&lt;Properties&gt;/<wbr>&lt;Label&gt;/<wbr>&lt;KeyValuePair&gt;</code></td><td><span>zero or more</span></td><td><code></code></td></tr>

@@ -13,7 +13,7 @@
 # 35c1f70fc9b9fb502417ee1efd24f29b88bb904d605f5e477cb6f0ca04a2bbd5  XML/Tags.rnc
 # 2eeb4d5cb1e3641924563aca60a6c9eab0da7538495b9937b71799db90735f44  datatype.rnc
 # c4a5100d57eda3f43c8317095a4a1659883df8a5fd0349f2482828b0f6a8e469  designmap.rnc
-# 618 reachable definitions, 23 unreachable; 1021 types: 501 structs, 99 choices, 293 enums (1516 literals), 62 ranged, 4 unions, 3 aliases, 59 interleaved-children enums; 6341 attributes, 17 literal attributes, 1288 child elements
+# 618 reachable definitions, 23 unreachable; 1022 types: 501 structs, 99 choices, 293 enums (1516 literals), 62 ranged, 4 unions, 3 aliases, 60 interleaved-children enums; 6341 attributes, 17 literal attributes, 1288 child elements
 # since: the IDML version that introduced the item (see schema-history.tsv); - for items that are not schema items
 rust	schema	rust type	since
 ABullet	ABullet_Object <ABullet>	struct	6.0
@@ -1280,8 +1280,8 @@ CharacterStyleRange.numbering_apply_restart_policy	@NumberingApplyRestartPolicy:
 CharacterStyleRange.bullets_alignment	@BulletsAlignment: ListAlignment_EnumValue	Option<ListAlignment>	6.0
 CharacterStyleRange.numbering_alignment	@NumberingAlignment: ListAlignment_EnumValue	Option<ListAlignment>	6.0
 CharacterStyleRange.properties	<Properties>?	Option<CharacterStyleRangeProperties>	6.0
-CharacterStyleRange.children	<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>*	Vec<CharacterStyleRangeChild>	-
-CharacterStyleRangeChild	CharacterStyleRange_Object/(<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>*)	enum (interleaved children, in document order)	-
+CharacterStyleRange.children	<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>* & <Endnote>* & <TextBox>*	Vec<CharacterStyleRangeChild>	-
+CharacterStyleRangeChild	CharacterStyleRange_Object/(<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>* & <Endnote>* & <TextBox>*)	enum (interleaved children, in document order)	-
 CharacterStyleRangeChild::HiddenText	<HiddenText>	HiddenText	6.0
 CharacterStyleRangeChild::Button	<Button>	Button	6.0
 CharacterStyleRangeChild::FormField	<FormField>	FormField	6.0
@@ -1311,6 +1311,8 @@ CharacterStyleRangeChild::ParagraphDestination	<ParagraphDestination>	ParagraphD
 CharacterStyleRangeChild::CrossReferenceSource	<CrossReferenceSource>	CrossReferenceSource	6.0
 CharacterStyleRangeChild::Content	<Content>{text}	String	6.0
 CharacterStyleRangeChild::Br	<Br>{empty}	()	6.0
+CharacterStyleRangeChild::Endnote	<Endnote>	Endnote	> 11.0 <= 15.0
+CharacterStyleRangeChild::TextBox	<TextBox>	TextBox	8.0
 CharacterStyleRangeProperties	CharacterStyleRange_Object/<Properties>	struct	6.0
 CharacterStyleRangeProperties.balance_ragged_lines	<BalanceRaggedLines>? (interleaved)	Option<BalanceRaggedLines>	6.0
 CharacterStyleRangeProperties.rule_above_color	<RuleAboveColor>? (interleaved)	Option<RuleAboveColor>	6.0
@@ -2478,6 +2480,12 @@ EndnoteRange	EndnoteRange_Object <EndnoteRange>	struct	> 11.0 <= 15.0
 EndnoteRange.self_	@Self: xsd:string	String	> 11.0 <= 15.0
 EndnoteRange.source_endnote	@SourceEndnote: xsd:string	Option<String>	> 11.0 <= 15.0
 EndnoteRange.properties	<Properties>?	Option<EndnoteRangeProperties>	> 11.0 <= 15.0
+EndnoteRange.children	<ParagraphStyleRange>* & <CharacterStyleRange>* & <HyperlinkTextSource>* & <Content>*	Vec<EndnoteRangeChild>	-
+EndnoteRangeChild	EndnoteRange_Object/(<ParagraphStyleRange>* & <CharacterStyleRange>* & <HyperlinkTextSource>* & <Content>*)	enum (interleaved children, in document order)	-
+EndnoteRangeChild::ParagraphStyleRange	<ParagraphStyleRange>	ParagraphStyleRange	> 11.0 <= 15.0
+EndnoteRangeChild::CharacterStyleRange	<CharacterStyleRange>	CharacterStyleRange	> 11.0 <= 15.0
+EndnoteRangeChild::HyperlinkTextSource	<HyperlinkTextSource>	HyperlinkTextSource	> 11.0 <= 15.0
+EndnoteRangeChild::Content	<Content>{text}	String	> 11.0 <= 15.0
 EndnoteRangeProperties	EndnoteRange_Object/<Properties>	struct	> 11.0 <= 15.0
 EndnoteRangeProperties.label	<Label>{<KeyValuePair>*}?	Option<Vec<KeyValuePair>>	> 11.0 <= 15.0
 EndnoteRestarting	EndnoteRestarting_EnumValue	enum	> 11.0 <= 15.0

@@ -1446,7 +1446,7 @@ pub struct CharacterStyleRange {
     pub numbering_alignment: Option<ListAlignment>,
     /// `<Properties>`. Since IDML 6.0.
     pub properties: Option<CharacterStyleRangeProperties>,
-    /// `<HiddenText>`, `<Button>`, `<FormField>`, `<MultiStateObject>`, `<Group>`, `<EPSText>`, `<GaijiOwnedItemObject>`, `<Note>`, `<Table>`, `<TextVariableInstance>`, `<Footnote>`, `<HyperlinkTextDestination>`, `<Change>`, `<XMLElement>`, `<XMLComment>`, `<XMLInstruction>`, `<DTD>`, `<Oval>`, `<Rectangle>`, `<GraphicLine>`, `<Polygon>`, `<TextFrame>`, `<PageReference>`, `<HyperlinkTextSource>`, `<EndnoteRange>`, `<ParagraphDestination>`, `<CrossReferenceSource>`, `<Content>`, `<Br>` in document order
+    /// `<HiddenText>`, `<Button>`, `<FormField>`, `<MultiStateObject>`, `<Group>`, `<EPSText>`, `<GaijiOwnedItemObject>`, `<Note>`, `<Table>`, `<TextVariableInstance>`, `<Footnote>`, `<HyperlinkTextDestination>`, `<Change>`, `<XMLElement>`, `<XMLComment>`, `<XMLInstruction>`, `<DTD>`, `<Oval>`, `<Rectangle>`, `<GraphicLine>`, `<Polygon>`, `<TextFrame>`, `<PageReference>`, `<HyperlinkTextSource>`, `<EndnoteRange>`, `<ParagraphDestination>`, `<CrossReferenceSource>`, `<Content>`, `<Br>`, `<Endnote>`, `<TextBox>` in document order
     pub children: Vec<CharacterStyleRangeChild>,
 }
 
@@ -2026,7 +2026,7 @@ impl Content for CharacterStyleRange {
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
-        r.known(&["Properties", "HiddenText", "Button", "FormField", "MultiStateObject", "Group", "EPSText", "GaijiOwnedItemObject", "Note", "Table", "TextVariableInstance", "Footnote", "HyperlinkTextDestination", "Change", "XMLElement", "XMLComment", "XMLInstruction", "DTD", "Oval", "Rectangle", "GraphicLine", "Polygon", "TextFrame", "PageReference", "HyperlinkTextSource", "EndnoteRange", "ParagraphDestination", "CrossReferenceSource", "Content", "Br"])?;
+        r.known(&["Properties", "HiddenText", "Button", "FormField", "MultiStateObject", "Group", "EPSText", "GaijiOwnedItemObject", "Note", "Table", "TextVariableInstance", "Footnote", "HyperlinkTextDestination", "Change", "XMLElement", "XMLComment", "XMLInstruction", "DTD", "Oval", "Rectangle", "GraphicLine", "Polygon", "TextFrame", "PageReference", "HyperlinkTextSource", "EndnoteRange", "ParagraphDestination", "CrossReferenceSource", "Content", "Br", "Endnote", "TextBox"])?;
         Self::read_attributes(r, v)?;
         r.opt_elem_into("Properties", &mut v.properties)?;
         loop {
@@ -2060,6 +2060,8 @@ impl Content for CharacterStyleRange {
                 Some("CrossReferenceSource") => v.children.push(CharacterStyleRangeChild::CrossReferenceSource(r.boxed("CrossReferenceSource")?)),
                 Some("Content") => v.children.push(CharacterStyleRangeChild::Content(r.elem("Content", |r| r.text())?)),
                 Some("Br") => { r.elem("Br", |_| Ok(()))?; v.children.push(CharacterStyleRangeChild::Br) },
+                Some("Endnote") => v.children.push(CharacterStyleRangeChild::Endnote(r.boxed("Endnote")?)),
+                Some("TextBox") => v.children.push(CharacterStyleRangeChild::TextBox(r.boxed("TextBox")?)),
                 _ => break,
             }
         }
@@ -2074,7 +2076,7 @@ impl Content for CharacterStyleRange {
     }
 }
 
-/// Schema: `CharacterStyleRange_Object/(<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>*)`.
+/// Schema: `CharacterStyleRange_Object/(<HiddenText>* & <Button>* & <FormField>* & <MultiStateObject>* & <Group>* & <EPSText>* & <GaijiOwnedItemObject>* & <Note>* & <Table>* & <TextVariableInstance>* & <Footnote>* & <HyperlinkTextDestination>* & <Change>* & <XMLElement>* & <XMLComment>* & <XMLInstruction>* & <DTD>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <Polygon>* & <TextFrame>* & <PageReference>* & <HyperlinkTextSource>* & <EndnoteRange>* & <ParagraphDestination>* & <CrossReferenceSource>* & <Content>* & <Br>* & <Endnote>* & <TextBox>*)`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CharacterStyleRangeChild {
     /// `<HiddenText>`. Since IDML 6.0.
@@ -2135,6 +2137,10 @@ pub enum CharacterStyleRangeChild {
     Content(String),
     /// `<Br>`. Since IDML 6.0.
     Br,
+    /// `<Endnote>`. Since IDML > 11.0 <= 15.0.
+    Endnote(Box<Endnote>),
+    /// `<TextBox>`. Since IDML 8.0.
+    TextBox(Box<TextBox>),
 }
 
 impl CharacterStyleRangeChild {
@@ -2169,6 +2175,8 @@ impl CharacterStyleRangeChild {
             Self::CrossReferenceSource(v) => w.elem("CrossReferenceSource", |w| v.write(w)),
             Self::Content(v) => w.elem("Content", |w| w.text(v)),
             Self::Br => w.elem("Br", |_| Ok(())),
+            Self::Endnote(v) => w.elem("Endnote", |w| v.write(w)),
+            Self::TextBox(v) => w.elem("TextBox", |w| v.write(w)),
         }
     }
 }
@@ -3116,6 +3124,8 @@ pub struct EndnoteRange {
     pub source_endnote: Option<String>,
     /// `<Properties>`. Since IDML > 11.0 <= 15.0.
     pub properties: Option<EndnoteRangeProperties>,
+    /// `<ParagraphStyleRange>`, `<CharacterStyleRange>`, `<HyperlinkTextSource>`, `<Content>` in document order
+    pub children: Vec<EndnoteRangeChild>,
 }
 
 impl EndnoteRange {
@@ -3125,6 +3135,7 @@ impl EndnoteRange {
             self_: self_.into(),
             source_endnote: None,
             properties: None,
+            children: Vec::new(),
         }
     }
 
@@ -3145,20 +3156,54 @@ impl EndnoteRange {
 
 impl Content for EndnoteRange {
     fn placeholder() -> Self {
-        Self { self_: String::new(), source_endnote: None, properties: None }
+        Self { self_: String::new(), source_endnote: None, properties: None, children: Vec::new() }
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
-        r.known(&["Properties"])?;
+        r.known(&["Properties", "ParagraphStyleRange", "CharacterStyleRange", "HyperlinkTextSource", "Content"])?;
         Self::read_attributes(r, v)?;
         r.opt_elem_into("Properties", &mut v.properties)?;
+        loop {
+            match r.peek() {
+                Some("ParagraphStyleRange") => v.children.push(EndnoteRangeChild::ParagraphStyleRange(r.boxed("ParagraphStyleRange")?)),
+                Some("CharacterStyleRange") => v.children.push(EndnoteRangeChild::CharacterStyleRange(r.boxed("CharacterStyleRange")?)),
+                Some("HyperlinkTextSource") => v.children.push(EndnoteRangeChild::HyperlinkTextSource(r.boxed("HyperlinkTextSource")?)),
+                Some("Content") => v.children.push(EndnoteRangeChild::Content(r.elem("Content", |r| r.text())?)),
+                _ => break,
+            }
+        }
         Ok(())
     }
 
     fn write(&self, w: &mut Writer) -> Result<(), Error> {
         self.write_attributes(w)?;
         if let Some(v) = &self.properties { w.elem("Properties", |w| v.write(w))?; }
+        for v in &self.children { v.write(w)?; }
         Ok(())
+    }
+}
+
+/// Schema: `EndnoteRange_Object/(<ParagraphStyleRange>* & <CharacterStyleRange>* & <HyperlinkTextSource>* & <Content>*)`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EndnoteRangeChild {
+    /// `<ParagraphStyleRange>`. Since IDML > 11.0 <= 15.0.
+    ParagraphStyleRange(Box<ParagraphStyleRange>),
+    /// `<CharacterStyleRange>`. Since IDML > 11.0 <= 15.0.
+    CharacterStyleRange(Box<CharacterStyleRange>),
+    /// `<HyperlinkTextSource>`. Since IDML > 11.0 <= 15.0.
+    HyperlinkTextSource(Box<HyperlinkTextSource>),
+    /// `<Content>`. Since IDML > 11.0 <= 15.0.
+    Content(String),
+}
+
+impl EndnoteRangeChild {
+    fn write(&self, w: &mut Writer) -> Result<(), Error> {
+        match self {
+            Self::ParagraphStyleRange(v) => w.elem("ParagraphStyleRange", |w| v.write(w)),
+            Self::CharacterStyleRange(v) => w.elem("CharacterStyleRange", |w| v.write(w)),
+            Self::HyperlinkTextSource(v) => w.elem("HyperlinkTextSource", |w| v.write(w)),
+            Self::Content(v) => w.elem("Content", |w| w.text(v)),
+        }
     }
 }
 
