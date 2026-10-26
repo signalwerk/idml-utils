@@ -4,6 +4,7 @@
 //! writes one canonical form that parses back to the same value.
 
 use std::fmt;
+use std::fmt::Write as _;
 
 /// A value that is not in a datatype's lexical or value space.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,8 +107,9 @@ macro_rules! integer_value {
 integer_value!(i32, "xsd:int");
 integer_value!(i16, "xsd:short");
 
-/// `xsd:double`, including `INF`, `-INF` and `NaN`. Written in the shortest
-/// decimal form that reads back as the same value.
+/// `xsd:double`, including `INF`, `-INF` and `NaN`. Written as InDesign
+/// writes numbers: the shortest digits that read back as the value, in
+/// plain notation from 1e-4 to below 1e11, otherwise with an exponent.
 impl Value for f64 {
     fn parse(text: &str) -> Result<Self, ValueError> {
         let t = collapsed(text);
@@ -142,12 +144,118 @@ impl Value for f64 {
         } else if self.is_infinite() {
             out.push_str(if *self > 0.0 { "INF" } else { "-INF" });
         } else {
-            out.push_str(&self.to_string());
+            format_double(*self, out);
         }
     }
 }
 
 impl ListItem for f64 {}
+
+/// A finite number as InDesign writes it in IDML:
+///
+/// - the shortest digits that read back as the value; when two decimals of
+///   that length read back as the value, the one nearest to the exact value,
+///   ties to the even digit (`150.23599243164062`, where the shortest
+///   round-trip form ends in `…063`);
+/// - plain notation from 1e-4 to below 1e11; below that with a two-digit
+///   negative exponent (`5.684341886080802e-14`, `1e-05`), from 1e11 on with
+///   a positive one (`1e+11`, `1e+256`);
+/// - negative zero as `-0`.
+///
+/// In InDesign's exports exponents occur only below 1e-4 and in `1e+11` and
+/// `1e+256`; no number of 1e11 or more is written in plain notation.
+fn format_double(v: f64, out: &mut String) {
+    if v == 0.0 {
+        out.push_str(if v.is_sign_negative() { "-0" } else { "0" });
+        return;
+    }
+    // `{:e}` gives the shortest digits; `{:.*e}` the nearest decimal of
+    // that length (ties to even), which is taken if it also reads back. Two
+    // decimals of 15 digits or fewer are further apart than a double's
+    // precision, so they cannot both read back.
+    let magnitude = v.abs();
+    let mut sci = Digits::default();
+    let _ = write!(sci, "{magnitude:e}");
+    let length = sci.as_str().split_once('e').map_or(0, |(m, _)| m.bytes().filter(u8::is_ascii_digit).count());
+    if length >= 16 {
+        let mut nearest = Digits::default();
+        let _ = write!(nearest, "{:.*e}", length - 1, magnitude);
+        if nearest.as_str().parse::<f64>() == Ok(magnitude) {
+            sci = nearest;
+        }
+    }
+    let Some((mantissa, exp)) = sci.as_str().split_once('e') else {
+        out.push_str(&v.to_string());
+        return;
+    };
+    let Ok(exp) = exp.parse::<i32>() else {
+        out.push_str(&v.to_string());
+        return;
+    };
+    if v < 0.0 {
+        out.push('-');
+    }
+    let mut digits = Digits::default();
+    for c in mantissa.chars().filter(char::is_ascii_digit) {
+        digits.push(c);
+    }
+    let digits = digits.as_str().trim_end_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    if !(-4..11).contains(&exp) {
+        let (first, rest) = digits.split_at(1);
+        out.push_str(first);
+        if !rest.is_empty() {
+            out.push('.');
+            out.push_str(rest);
+        }
+        let sign = if exp < 0 { '-' } else { '+' };
+        let _ = write!(out, "e{sign}{:02}", exp.unsigned_abs());
+    } else if exp < 0 {
+        out.push_str("0.");
+        out.extend(std::iter::repeat_n('0', exp.unsigned_abs() as usize - 1));
+        out.push_str(digits);
+    } else {
+        // The decimal point goes after `exp + 1` digits.
+        let point = exp as usize + 1;
+        if point >= digits.len() {
+            out.push_str(digits);
+            out.extend(std::iter::repeat_n('0', point - digits.len()));
+        } else {
+            let (int, frac) = digits.split_at(point);
+            out.push_str(int);
+            out.push('.');
+            out.push_str(frac);
+        }
+    }
+}
+
+/// A number's text without an allocation: `{:e}` of a double has at most
+/// 24 characters, its digits at most 17.
+#[derive(Default)]
+struct Digits {
+    bytes: [u8; 32],
+    len: usize,
+}
+
+impl Digits {
+    fn push(&mut self, c: char) {
+        let mut buf = [0; 4];
+        let _ = fmt::Write::write_str(self, c.encode_utf8(&mut buf));
+    }
+
+    fn as_str(&self) -> &str {
+        self.bytes.get(..self.len).and_then(|b| std::str::from_utf8(b).ok()).unwrap_or_default()
+    }
+}
+
+impl fmt::Write for Digits {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let end = self.len + s.len();
+        self.bytes.get_mut(self.len..end).ok_or(fmt::Error)?.copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
 
 /// A string inside an IDML list (`list { xsd:string* }`): list items are
 /// separated by whitespace, so a token is non-empty and contains none.
@@ -532,17 +640,45 @@ mod tests {
             ("+.5", "0.5"),
             ("5.", "5"),
             ("1E3", "1000"),
-            ("1e-7", "0.0000001"),
+            ("1e-7", "1e-07"),
+            ("0.0001", "0.0001"),
             ("-0", "-0"),
             ("INF", "INF"),
             ("-INF", "-INF"),
             ("NaN", "NaN"),
-            ("1.7976931348623157e308", &f64::MAX.to_string()),
+            ("1.7976931348623157e308", "1.7976931348623157e+308"),
         ] {
             assert_eq!(round::<f64>(text), canonical, "{text}");
         }
         for bad in ["", ".", "e5", "1e", "inf", "Infinity", "+INF", "nan", "0x10", "1,5", "1 2"] {
             assert!(f64::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    #[allow(clippy::excessive_precision)]
+    fn doubles_are_written_as_indesign_writes_them() {
+        let text = |v: f64| {
+            let mut out = String::new();
+            v.format(&mut out);
+            out
+        };
+        assert_eq!(text(205.2), "205.2");
+        assert_eq!(text(-89.99999999999999), "-89.99999999999999");
+        assert_eq!(text(0.1 + 0.2), "0.30000000000000004");
+        // Of two 17-digit decimals that read back, the nearest; ties to even.
+        assert_eq!(text(150.235992431640625), "150.23599243164062");
+        assert_eq!(text(-150.235992431640625), "-150.23599243164062");
+        assert_eq!(text(22.3404083251953125), "22.340408325195312");
+        assert_eq!(text(5.684341886080802e-14), "5.684341886080802e-14");
+        assert_eq!(text(1.8897456811828306e-05), "1.8897456811828306e-05");
+        assert_eq!(text(1e-5), "1e-05");
+        assert_eq!(text(1e10), "10000000000");
+        assert_eq!(text(1e11), "1e+11");
+        assert_eq!(text(1e256), "1e+256");
+        assert_eq!(text(-1.5e11), "-1.5e+11");
+        for v in [1.0 / 3.0, 2.0 / 3.0, 1e-7 / 3.0, 123456.789e3 / 7.0, f64::MIN_POSITIVE, 5e-324, f64::MAX] {
+            assert_eq!(f64::parse(&text(v)), Ok(v));
         }
     }
 

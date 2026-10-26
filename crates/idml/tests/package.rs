@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 
 use idml::model::*;
-use idml::{ErrorKind, Mode, Package, Part, PartFile, PartPath, ReadOptions};
+use idml::{ErrorKind, MIMETYPE, Mode, Package, Part, PartFile, PartPath, ReadOptions};
 
 fn zip(files: &[(&str, &str)]) -> Vec<u8> {
     let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -56,12 +56,47 @@ fn a_package_built_in_code_round_trips() {
     assert_eq!(files.keys().next().map(String::as_str), Some("META-INF/container.xml"));
     assert!(bytes.get(30..38) == Some(b"mimetype"), "mimetype comes first");
     assert!(files["designmap.xml"].contains("<?aid style=\"50\""));
-    assert!(files["designmap.xml"].contains(r#"<idPkg:Story src="Stories/Story_u1.xml"/>"#));
+    assert!(files["designmap.xml"].contains(r#"<idPkg:Story src="Stories/Story_u1.xml" />"#));
     assert!(files["Stories/Story_u1.xml"].contains("<Content>Tab\there, &lt;&amp;&gt; and <?ACE 7?> indent</Content>"));
 
     let read = Package::read(&bytes, &ReadOptions::default()).unwrap();
     assert!(read.warnings.is_empty(), "{:?}", read.warnings);
     assert_eq!(read.value, package);
+    // Written again with the layout read, the package keeps its bytes.
+    assert_eq!(unzip(&read.value.write().unwrap()), files);
+}
+
+#[test]
+fn a_read_package_keeps_its_layout() {
+    let designmap = r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<?aid style="50" type="document" readerVersion="6.0" featureSet="257" product="21.5(64)" ?>
+<Document xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging" DOMVersion="21.5" Self="d" StoryList="u1">
+	<Language Self="Language/$ID/English%3a USA" Name="$ID/English: USA" />
+	<idPkg:Story src="Stories/Story_u1.xml" />
+</Document>
+"#;
+    let story = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<idPkg:Story xmlns:idPkg=\"http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging\" DOMVersion=\"21.5\">\n\t\
+        <Story Self=\"u1\" TrackChanges=\"false\" AppliedTOCStyle=\"n\">\n\t\t<ParagraphStyleRange>\n\t\t\t<CharacterStyleRange>\n\t\t\t\t\
+        <Content>a</Content>\n\t\t\t\t<Br></Br>\n\t\t\t\t<Content></Content>\n\t\t\t</CharacterStyleRange>\n\t\t</ParagraphStyleRange>\n\t</Story>\n</idPkg:Story>";
+    let bytes = zip(&[("mimetype", MIMETYPE), ("designmap.xml", designmap), ("META-INF/container.xml", CONTAINER), ("Stories/Story_u1.xml", story)]);
+    let read = Package::read(&bytes, &ReadOptions::default()).unwrap();
+    assert!(read.warnings.is_empty(), "{:?}", read.warnings);
+    let written = read.value.write().unwrap();
+    assert_eq!(unzip(&written), unzip(&bytes));
+    let names = |bytes: &[u8]| {
+        let mut z = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
+        (0..z.len()).map(|i| z.by_index(i).unwrap().name().unwrap().into_owned()).collect::<Vec<_>>()
+    };
+    assert_eq!(names(&written), names(&bytes));
+
+    // Without the layout: InDesign's order and form.
+    let mut package = read.value;
+    package.layout = idml::Layout::default();
+    let files = unzip(&package.write().unwrap());
+    assert!(files["Stories/Story_u1.xml"].contains("<Story Self=\"u1\" AppliedTOCStyle=\"n\" TrackChanges=\"false\">"));
+    assert!(files["Stories/Story_u1.xml"].contains("<Br />"));
+    assert!(files["Stories/Story_u1.xml"].contains("<Content />"));
+    assert!(files["Stories/Story_u1.xml"].ends_with("</idPkg:Story>\n"));
 }
 
 #[test]

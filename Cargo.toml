@@ -12,6 +12,7 @@ repository = "https://github.com/signalwerk/idml-utils"
 [workspace.dependencies]
 idml = { path = "crates/idml" }
 idml-codegen = { path = "crates/idml-codegen" }
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 roxmltree = "0.21"
 sha2 = "0.11"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }

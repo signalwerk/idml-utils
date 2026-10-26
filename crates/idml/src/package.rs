@@ -1,15 +1,15 @@
 //! IDML packages: the ZIP container around the designmap and its parts.
 
-use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Cursor, Read, Seek, Write};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::io::Write;
 
-use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
-
+use crate::archive;
+use crate::element::Element;
 use crate::error::{Error, ErrorKind, Location, Warning};
-use crate::model::{Document, INDESIGN_VERSION};
+use crate::layout::{Compression, Entry, Layout};
+use crate::model::{DOM_VERSION, Document, INDESIGN_VERSION};
 use crate::value::PartPath;
-use crate::xml::{Content, Ctx, Writer, read_part};
+use crate::xml::{Content, Ctx, DECLARATION, PACKAGING_NS, Writer, read_part, serialize};
 
 /// The content of the `mimetype` entry.
 pub const MIMETYPE: &str = "application/vnd.adobe.indesign-idml-package";
@@ -22,7 +22,9 @@ const METADATA: &str = "META-INF/metadata.xml";
 ///
 /// The designmap [`Document`] holds the other parts where it references
 /// them, so a package cannot reference a part it does not contain.
-#[derive(Debug, Clone, PartialEq)]
+///
+/// Packages compare by content: the [`Layout`] is not compared.
+#[derive(Debug, Clone)]
 pub struct Package {
     pub document: Document,
     /// `META-INF/metadata.xml`, an XMP packet. The IDML schema does not
@@ -30,6 +32,15 @@ pub struct Package {
     pub metadata: Option<String>,
     /// Entries that the designmap does not reference, kept verbatim.
     pub other_files: BTreeMap<String, Vec<u8>>,
+    /// How the package is written: recorded when it is read, empty for a new
+    /// package (written as InDesign writes packages).
+    pub layout: Layout,
+}
+
+impl PartialEq for Package {
+    fn eq(&self, other: &Self) -> bool {
+        self.document == other.document && self.metadata == other.metadata && self.other_files == other.other_files
+    }
 }
 
 /// A package part with a path chosen by the document (spreads, master
@@ -106,13 +117,14 @@ pub trait PartFile: Sized + crate::sealed::Sealed {
 
 impl Package {
     pub fn new(document: Document) -> Self {
-        Package { document, metadata: None, other_files: BTreeMap::new() }
+        Package { document, metadata: None, other_files: BTreeMap::new(), layout: Layout::default() }
     }
 
-    /// Reads a package from the bytes of an `.idml` file.
+    /// Reads a package from the bytes of an `.idml` file, with its layout.
     pub fn read(bytes: &[u8], options: &ReadOptions) -> Result<Parsed<Package>, Error> {
         let mut ctx = Ctx::new(options, "");
-        ctx.files = unzip(bytes, options)?;
+        let (files, entries) = unzip(bytes, options)?;
+        ctx.files = files;
         let package_error =
             |message: String, part: &str| Error::new(ErrorKind::Package, message).at(Location { part: part.to_owned(), ..Location::default() });
         let notice = |ctx: &mut Ctx, message: String, part: &str| -> Result<(), Error> {
@@ -130,8 +142,13 @@ impl Package {
             Some(_) => notice(&mut ctx, format!("mimetype is not {MIMETYPE}"), "mimetype")?,
             None => notice(&mut ctx, "missing mimetype".to_owned(), "mimetype")?,
         }
+        let mut layout = Layout { entries, ..Layout::default() };
         let designmap = match ctx.files.remove(CONTAINER) {
-            Some(c) => root_file(&c).map_err(|m| package_error(m, CONTAINER))?,
+            Some(c) => {
+                let designmap = root_file(&c).map_err(|m| package_error(m, CONTAINER))?;
+                layout.container = String::from_utf8(c).ok();
+                designmap
+            }
             None => {
                 notice(&mut ctx, "missing container; assuming designmap.xml".to_owned(), CONTAINER)?;
                 DESIGNMAP.to_owned()
@@ -143,61 +160,143 @@ impl Package {
         };
         let xml = ctx.files.remove(&designmap).ok_or_else(|| package_error("missing designmap".to_owned(), &designmap))?;
         let xml = String::from_utf8(xml).map_err(|_| package_error("not UTF-8".to_owned(), &designmap))?;
-        ctx.part = designmap;
+        ctx.part = designmap.clone();
         let document: Document = read_part(&mut ctx, &xml, "Document")?;
+        // The `aid` instruction of an older version would name it.
+        if !ctx.upgraded.contains(&designmap) {
+            layout.aid = aid(&xml);
+        }
 
         let mut other_files = std::mem::take(&mut ctx.files);
         other_files.retain(|path, _| !ctx.used.contains(path));
         for path in other_files.keys() {
             ctx.warn("not referenced by the designmap; kept in other_files".to_owned(), Location { part: path.clone(), ..Location::default() });
         }
-        Ok(Parsed { value: Package { document, metadata, other_files }, warnings: ctx.into_warnings() })
+        layout.parts = std::mem::take(&mut ctx.layouts);
+        // The designmap is written at its usual path.
+        if let Some(l) = layout.parts.remove(&designmap) {
+            layout.parts.insert(DESIGNMAP.to_owned(), l);
+        }
+        Ok(Parsed { value: Package { document, metadata, other_files, layout }, warnings: ctx.into_warnings() })
+    }
+
+    /// Reads a package from elements: the designmap's root element
+    /// (`Document`) and the root element of each part it references, by path.
+    ///
+    /// The elements are read as content of this library's `DOMVersion`, so
+    /// part roots leave out `DOMVersion` and the `xmlns:idPkg` declaration;
+    /// [`Layout::dom_version`] sets the version written. The order of
+    /// attributes and children becomes the package's layout.
+    pub fn from_elements(designmap: &Element, parts: &BTreeMap<String, Element>, options: &ReadOptions) -> Result<Parsed<Package>, Error> {
+        let to_xml = |path: &str, root: &Element| -> Result<Vec<u8>, Error> {
+            if root.attributes.iter().any(|(n, _)| n == "DOMVersion" || n == "xmlns:idPkg") {
+                let message = "the library writes DOMVersion and xmlns:idPkg; set Layout::dom_version for another version";
+                return Err(Error::new(ErrorKind::Package, message).in_part(path));
+            }
+            let mut out = String::from(DECLARATION);
+            serialize(&mut out, root, &[("xmlns:idPkg", PACKAGING_NS), ("DOMVersion", DOM_VERSION)], None).map_err(|e| e.in_part(path))?;
+            Ok(out.into_bytes())
+        };
+        let mut ctx = Ctx::new(options, DESIGNMAP);
+        for (path, root) in parts {
+            ctx.files.insert(path.clone(), to_xml(path, root)?);
+        }
+        let xml = String::from_utf8(to_xml(DESIGNMAP, designmap)?).map_err(|_| Error::new(ErrorKind::Package, "not UTF-8"))?;
+        let document: Document = read_part(&mut ctx, &xml, "Document")?;
+        if let Some(path) = ctx.files.keys().find(|path| !ctx.used.contains(*path)) {
+            return Err(Error::new(ErrorKind::Package, "not referenced by the designmap").in_part(path));
+        }
+        let layout = Layout { parts: std::mem::take(&mut ctx.layouts), ..Layout::default() };
+        let package = Package { document, metadata: None, other_files: BTreeMap::new(), layout };
+        Ok(Parsed { value: package, warnings: ctx.into_warnings() })
+    }
+
+    /// Writes the package to `out` and returns it.
+    pub fn write_to<W: Write>(&self, mut out: W) -> Result<W, Error> {
+        out.write_all(&self.write()?)?;
+        Ok(out)
     }
 
     /// Writes the package as the bytes of an `.idml` file.
     pub fn write(&self) -> Result<Vec<u8>, Error> {
-        Ok(self.write_to(Cursor::new(Vec::new()))?.into_inner())
-    }
+        let layout = &self.layout;
+        let pi = match &layout.aid {
+            Some(aid) => aid.clone(),
+            None => format!("aid style=\"50\" type=\"document\" readerVersion=\"6.0\" featureSet=\"257\" product=\"{}\" ", product()),
+        };
+        let designmap = Writer::document(layout, DESIGNMAP, "Document", Some(&pi), |w| self.document.write(w))?;
 
-    /// Writes the package to `out` and returns it.
-    pub fn write_to<W: Write + Seek>(&self, out: W) -> Result<W, Error> {
-        let pi = format!("aid style=\"50\" type=\"document\" readerVersion=\"6.0\" featureSet=\"257\" product=\"{}\" ", product());
-        let designmap = Writer::document(DESIGNMAP, "Document", Some(&pi), |w| self.document.write(w))?;
-
-        let mut paths: BTreeSet<&str> = [DESIGNMAP, CONTAINER, METADATA, "mimetype"].into();
-        let parts = designmap.parts.iter().map(|(p, x)| (p.as_str(), x.as_bytes()));
-        let others = self.other_files.iter().map(|(p, b)| (p.as_str(), b.as_slice()));
-        let entries: Vec<(&str, &[u8])> = parts.chain(others).collect();
+        let mut entries: Vec<(&str, &[u8])> = vec![("mimetype", MIMETYPE.as_bytes())];
+        entries.push((CONTAINER, layout.container.as_deref().unwrap_or(CONTAINER_XML).as_bytes()));
+        if let Some(m) = &self.metadata {
+            entries.push((METADATA, m.as_bytes()));
+        }
+        entries.push((DESIGNMAP, designmap.xml.as_bytes()));
+        entries.extend(designmap.parts.iter().map(|(p, x)| (p.as_str(), x.as_bytes())));
+        entries.extend(self.other_files.iter().map(|(p, b)| (p.as_str(), b.as_slice())));
+        let mut paths = BTreeSet::new();
         for (path, _) in &entries {
-            if !paths.insert(path) {
+            if !paths.insert(*path) {
                 return Err(Error::new(ErrorKind::Package, format!("two package entries share the path {path}")));
             }
         }
+        // The layout's order, then InDesign's.
+        let listed: HashMap<&str, (usize, Compression)> =
+            layout.entries.iter().enumerate().map(|(i, e)| (e.path.as_str(), (i, e.compression))).collect();
+        let position = |path: &str| match listed.get(path) {
+            Some((i, _)) => (0, *i),
+            None => (1, indesign_rank(path)),
+        };
+        // Stable: parts of one kind stay in designmap order.
+        entries.sort_by_key(|(path, _)| position(path));
 
-        let mut zip = ZipWriter::new(out);
-        let stored = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
-        let deflated = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
-        zip.start_file("mimetype", stored)?;
-        zip.write_all(MIMETYPE.as_bytes())?;
-        zip.start_file(CONTAINER, deflated)?;
-        zip.write_all(CONTAINER_XML.as_bytes())?;
-        if let Some(m) = &self.metadata {
-            zip.start_file(METADATA, deflated)?;
-            zip.write_all(m.as_bytes())?;
-        }
-        zip.start_file(DESIGNMAP, deflated)?;
-        zip.write_all(designmap.xml.as_bytes())?;
-        for (path, bytes) in entries {
-            zip.start_file(path, deflated)?;
-            zip.write_all(bytes)?;
-        }
-        Ok(zip.finish()?)
+        let files: Vec<(&str, &[u8], Compression)> = entries
+            .into_iter()
+            .map(|(path, bytes)| {
+                let compression = match listed.get(path) {
+                    Some((_, c)) => *c,
+                    None if path == "mimetype" => Compression::Stored,
+                    None => Compression::Deflated,
+                };
+                (path, bytes, compression)
+            })
+            .collect();
+        archive::write(&files)
     }
+}
+
+/// The position of an entry in InDesign's packages.
+fn indesign_rank(path: &str) -> usize {
+    const ORDER: &[&str] = &[
+        "mimetype",
+        DESIGNMAP,
+        CONTAINER,
+        METADATA,
+        "Resources/Graphic.xml",
+        "Resources/Fonts.xml",
+        "Resources/Styles.xml",
+        "Resources/Preferences.xml",
+        "XML/Tags.xml",
+        "MasterSpreads/",
+        "Spreads/",
+        "XML/BackingStory.xml",
+        "Stories/",
+        "XML/Mapping.xml",
+    ];
+    ORDER.iter().position(|p| if p.ends_with('/') { path.starts_with(p) } else { path == *p }).unwrap_or(ORDER.len())
+}
+
+/// The `aid` processing instruction before the root element of a designmap.
+fn aid(xml: &str) -> Option<String> {
+    let root = xml.find("<Document")?;
+    let start = xml.get(..root)?.find("<?aid ")?;
+    let end = xml.get(start..root)?.find("?>")?;
+    xml.get(start + 2..start + end).map(str::to_owned)
 }
 
 const CONTAINER_XML: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
 <container version=\"1.0\" xmlns=\"urn:oasis:names:tc:opendocument:xmlns:container\">\n\
-\t<rootfiles>\n\t\t<rootfile full-path=\"designmap.xml\" media-type=\"text/xml\"/>\n\t</rootfiles>\n</container>\n";
+\t<rootfiles>\n\t\t<rootfile full-path=\"designmap.xml\" media-type=\"text/xml\">\n\t\t</rootfile>\n\t</rootfiles>\n</container>\n";
 
 /// `21.5(64)` for InDesign 21.5.0.64, as the designmap's `aid` instruction
 /// names the product.
@@ -209,28 +308,19 @@ fn product() -> String {
     }
 }
 
-fn unzip(bytes: &[u8], options: &crate::ReadOptions) -> Result<BTreeMap<String, Vec<u8>>, Error> {
-    let mut archive = ZipArchive::new(Cursor::new(bytes))?;
+type Files = BTreeMap<String, Vec<u8>>;
+
+/// The entries of a ZIP archive, and their order and compression.
+fn unzip(bytes: &[u8], options: &crate::ReadOptions) -> Result<(Files, Vec<Entry>), Error> {
     let mut files = BTreeMap::new();
-    let mut total: u64 = 0;
-    for i in 0..archive.len() {
-        let entry = archive.by_index(i)?;
-        if entry.is_dir() {
-            continue;
+    let mut entries = Vec::new();
+    for f in archive::read(bytes, options.max_size)? {
+        if files.insert(f.name.clone(), f.data).is_some() {
+            return Err(Error::new(ErrorKind::Package, format!("duplicate entry {}", f.name)));
         }
-        let name = entry.name()?.into_owned();
-        let budget = options.max_size.saturating_sub(total);
-        let mut data = Vec::new();
-        entry.take(budget.saturating_add(1)).read_to_end(&mut data)?;
-        total = total.saturating_add(data.len() as u64);
-        if total > options.max_size {
-            return Err(Error::new(ErrorKind::Limit, format!("package expands beyond {} bytes", options.max_size)));
-        }
-        if files.insert(name.clone(), data).is_some() {
-            return Err(Error::new(ErrorKind::Package, format!("duplicate entry {name}")));
-        }
+        entries.push(Entry { path: f.name, compression: f.compression });
     }
-    Ok(files)
+    Ok((files, entries))
 }
 
 /// The designmap path named by `META-INF/container.xml`.
@@ -254,5 +344,19 @@ mod tests {
     #[test]
     fn product_name() {
         assert!(product().contains('('));
+    }
+
+    #[test]
+    fn finds_the_aid_instruction() {
+        let xml = "<?xml version=\"1.0\"?>\n<?aid style=\"50\" product=\"20.4(52)\" ?>\n<Document/>";
+        assert_eq!(aid(xml).as_deref(), Some("aid style=\"50\" product=\"20.4(52)\" "));
+        assert_eq!(aid("<Document/><?aid x?>"), None);
+    }
+
+    #[test]
+    fn entries_follow_indesign_order() {
+        let mut paths = ["Stories/Story_u1.xml", "Resources/Fonts.xml", "designmap.xml", "Spreads/Spread_u2.xml", "mimetype", "other.txt"];
+        paths.sort_by_key(|p| indesign_rank(p));
+        assert_eq!(paths, ["mimetype", "designmap.xml", "Resources/Fonts.xml", "Spreads/Spread_u2.xml", "Stories/Story_u1.xml", "other.txt"]);
     }
 }

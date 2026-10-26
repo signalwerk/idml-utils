@@ -12,6 +12,7 @@ reading.
 | `crates/idml/schema-map.tsv`      | Every schema item, the Rust item representing it, and the IDML version that introduced it                   |
 | `crates/idml/schema-history.tsv`  | Every schema item of every version: introduced, moved, changed, removed                                     |
 | `crates/idml/schema-upgrades.tsv` | How documents of older versions are read: a rule for every schema difference                                |
+| `crates/idml/schema-amendments.tsv` | Content InDesign writes but its own schemas do not allow, with the evidence; added to every snapshot        |
 | `docs/`                          | Generated GitHub Pages site: schema changes and upgrade reports (open `docs/index.html`)                    |
 | `crates/idml-codegen`             | Schema → model generator, and the test oracle                                                               |
 | `schemas/`                        | Download script, checksums and documentation; downloaded schema folders are local and ignored by Git        |
@@ -68,6 +69,15 @@ for part in &mut package.document.story {
 }
 let bytes = package.write()?;
 ```
+
+A package is written as InDesign writes packages: its number format, entry
+order, indentation and `<a />` empty elements, and CDATA where InDesign
+uses it. A package that was read keeps its layout (`package.layout`): the
+order of entries, attributes and child elements, compression and the other
+details InDesign's own output varies in, so writing it again changes only
+what was edited. Producers that build parts by element and attribute name,
+such as converters, pass `idml::Element` trees to `Package::from_elements`,
+which reads them into the model, checking them against the schema.
 
 ## Regenerate the model and reports
 

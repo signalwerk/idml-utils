@@ -70,6 +70,12 @@ impl Error {
         self
     }
 
+    /// Sets the part of the location.
+    pub(crate) fn in_part(mut self, part: &str) -> Self {
+        self.0.location.get_or_insert_with(Location::default).part = part.to_owned();
+        self
+    }
+
     pub fn kind(&self) -> ErrorKind {
         self.0.kind
     }
@@ -93,12 +99,6 @@ impl fmt::Display for Error {
 }
 
 impl std::error::Error for Error {}
-
-impl From<zip::result::ZipError> for Error {
-    fn from(e: zip::result::ZipError) -> Self {
-        Error::new(ErrorKind::Zip, e.to_string())
-    }
-}
 
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {

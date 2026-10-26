@@ -41,11 +41,20 @@
 //! the `mimetype` and `META-INF/container.xml` entries, `idPkg:*` part
 //! references in the designmap, and `<?ACE n?>` processing instructions for
 //! control characters in text.
+//!
+//! Packages are written as InDesign writes them. A package that was read
+//! keeps its [`Layout`] (the order of entries, attributes and children, and
+//! other details of form), so writing it again changes only what was edited.
+//! Producers that build parts by element and attribute name pass [`Element`]
+//! trees to [`Package::from_elements`].
 
 // rustdoc's auto-trait listing walks the deeply nested generated types.
 #![recursion_limit = "512"]
 
+mod archive;
+mod element;
 mod error;
+pub mod layout;
 #[rustfmt::skip]
 pub mod model;
 mod package;
@@ -53,7 +62,9 @@ mod upgrade;
 pub mod value;
 mod xml;
 
+pub use element::Element;
 pub use error::{Error, ErrorKind, Location, Warning};
+pub use layout::Layout;
 pub use package::{MIMETYPE, Mode, Package, Parsed, Part, PartFile, ReadOptions};
 pub use value::{DateTime, PartPath, Token, ValueError};
 

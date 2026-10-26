@@ -12,7 +12,8 @@ schemas/<build>/package/*.rnc
   └─ idml-codegen
        rnc.rs     parse the compact syntax (the subset InDesign emits)
        rng.rs     parse the XML syntax (some published schemas exist only so)
-       schema.rs  merge the part grammars; check shared definitions agree; reachability
+       schema.rs  merge the part grammars; check shared definitions agree; reachability;
+                  apply crates/idml/schema-amendments.tsv
        lower.rs   map every reachable pattern to the model; fail on anything unmapped
        history.rs date every item from all schemas/*/ snapshots → crates/idml/schema-history.tsv
        upgrade.rs check crates/idml/schema-upgrades.tsv against them → src/model/upgrades.rs
@@ -23,6 +24,8 @@ schemas/<build>/package/*.rnc
        model/     generated types (checked in, never edited)
        value.rs   XML Schema datatypes, checked newtypes, enum/range macros
        xml/       reader and writer that generated code drives
+       layout.rs  how a package is written apart from its content: kept from reading
+       element.rs untyped elements, read into the model by Package::from_elements
        package.rs ZIP container, designmap, conventions outside the schema
        upgrade.rs edits parts of older DOMVersions before they are read
 ```
@@ -185,7 +188,10 @@ each change in the reports.
 | Decision | Reason |
 |---|---|
 | Generated typed structs, not typed views over an XML tree | Invalid states are unrepresentable; adapters match exhaustively, so a new enum value or field is a compile-time change for them. |
-| Values compared in their value space | `1.0` and `1` are the same `xsd:double`; the writer uses one canonical form (shortest round-trip decimal, `INF`, `NaN`, `true`). `DateTime` keeps its lexical form. |
+| Values compared in their value space | `1.0` and `1` are the same `xsd:double`; the writer uses one canonical form, InDesign's (shortest round-trip digits, the nearest such decimal when two read back, exponents below 1e-4 and from 1e11; `INF`, `NaN`, `true`). `DateTime` keeps its lexical form. |
+| Written as InDesign writes | Tabs, `<a />`, `&#xa;`, CDATA sections of at most 256 KiB for `<Contents>` and the other elements InDesign writes so, InDesign's entry order with `mimetype` stored. A file that InDesign can read is the goal; a diff against an InDesign export should show content, not form. |
+| Layout kept, not compared | Reading records the order of entries, attributes and children, empty-element form, CDATA, compression, final line feeds, `META-INF/container.xml` and the `aid` instruction (`Layout`); writing follows it where it fits the content, so a read package is written back byte for byte where unchanged. `Package` equality ignores it, as layout is not content. Layouts are found by element name and position, which survives edits that add or remove elements of other names. |
+| Schemas amended where InDesign contradicts them | InDesign writes some content its schemas reject (`<Endnote>` in text, text in `<EndnoteRange>`). `schema-amendments.tsv` adds it, with evidence, to every snapshot defining the names involved, so the model, history and oracle include it. |
 | Conservative datatypes | Where XML Schema versions or validators disagree, only the common subset is accepted: `24:00:00` (allowed by an XSD 1.0 erratum, rejected by Jing) is not a valid `DateTime`, `+INF` is not a valid double. |
 | Interleaved singletons written in schema order | Their order carries no information; repeated members keep document order, which matters for text. |
 | `required` fields come from `new()`, not `Default` | A placeholder value for required data would be silently wrong. Types without required data implement `Default`. |
@@ -194,7 +200,7 @@ each change in the reports.
 | `<?ACE n?>` in text ↔ control character | IDML encodes characters XML 1.0 cannot contain (U+0000–U+001F except tab, LF, CR) as processing instructions; the model stores the character. |
 | Reading in place | Generated structs are large (hundreds of optional attributes). Children are read into their final heap location, so recursion uses about 1 KiB of stack per level in release builds. `ReadOptions::max_depth` (default 48) is enforced before parsing, as the XML parser recurses too. |
 | No panics, no `unsafe`, no I/O, threads or clocks | Matches the consumers' rules (DesignCraft's never-crash standard, WASM builds). |
-| Dependencies: `roxmltree`, `zip` | Maintained, pure Rust, WASM-capable. The writer is our own: it is small and controls escaping and indentation. |
+| Dependencies: `roxmltree`, `zip` | Maintained, pure Rust, WASM-capable. The writer is our own: it is small and controls escaping and indentation. It builds a tree before serializing, so that a layout can order attributes and children. |
 
 ## Updating to a new InDesign version
 
@@ -214,15 +220,19 @@ each change in the reports.
    enums or build changed structs.
 
 The model targets one schema build at a time. Older documents are upgraded
-while reading; newer ones can be read in lenient mode. Writing always
-produces the current `DOMVersion`.
+while reading; newer ones can be read in lenient mode. Writing produces the
+current `DOMVersion` unless `Layout::dom_version` names another; the content
+is not converted for it, so a producer sets it only for content valid in that
+version.
 
 ## Adapters
 
 The library owns IDML; adapters own their source or editor models:
 
-- **indd-utils** builds a `Package` from its decoded INDD model instead of
-  writing XML itself, keeping its INDD knowledge (attribute IDs, defaults).
+- **indd-utils** builds `Element` trees from its decoded INDD model and
+  reads them with `Package::from_elements`, keeping its INDD knowledge
+  (attribute IDs, defaults) and leaving XML, schema checks and packaging to
+  this library. It sets `Layout::dom_version` to the document's version.
 - **DesignCraft** maps `Package` to and from its editor model. To keep IDML
   it does not model, it can retain the read `Package` and patch it on export.
 - **QuarkXPress** and other converters build a `Package` directly.

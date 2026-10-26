@@ -17,11 +17,12 @@ history = "../../schemas"
 upgrades = "schema-upgrades.tsv"
 
 [dependencies]
+miniz_oxide = { workspace = true }
 roxmltree = { workspace = true }
-zip = { workspace = true }
 
 [dev-dependencies]
 idml-codegen = { workspace = true }
+zip = { workspace = true }
 
 [lints]
 workspace = true

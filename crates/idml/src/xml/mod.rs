@@ -4,7 +4,7 @@ mod read;
 mod write;
 
 pub(crate) use read::{Ctx, Reader, nesting_exceeds, qualified, read_part};
-pub(crate) use write::Writer;
+pub(crate) use write::{DECLARATION, Writer, serialize};
 
 use crate::error::Error;
 use crate::{Parsed, PartFile, ReadOptions};
@@ -53,5 +53,6 @@ pub(crate) fn from_xml<T: Root>(xml: &str, options: &ReadOptions) -> Result<Pars
 
 /// [`PartFile::to_xml`] for generated types.
 pub(crate) fn to_xml<T: Root>(value: &T) -> Result<String, Error> {
-    Ok(Writer::document("", T::ELEMENT, None, |w| value.write(w))?.xml)
+    static INDESIGN: crate::Layout = crate::Layout::EMPTY;
+    Ok(Writer::document(&INDESIGN, "", T::ELEMENT, None, |w| value.write(w))?.xml)
 }

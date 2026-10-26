@@ -12,6 +12,7 @@ use roxmltree::{Document, Node, NodeType};
 
 use super::{Content, PACKAGING_NS, Root};
 use crate::error::{Error, ErrorKind, Location, Warning};
+use crate::layout::PartLayout;
 use crate::value::{PartPath, Value};
 use crate::{Mode, Part, ReadOptions};
 
@@ -29,11 +30,49 @@ pub(crate) struct Ctx {
     pub used: BTreeSet<String>,
     /// The part being read, for locations.
     pub part: String,
+    /// The layout of each part read, by path.
+    pub layouts: BTreeMap<String, PartLayout>,
+    /// The parts that were upgraded from an older `DOMVersion`.
+    pub upgraded: BTreeSet<String>,
+    /// How many choices are trying alternatives. Their errors only give
+    /// their message, so they are not located.
+    trial: usize,
+    /// The offsets at which the lines of the last text located start, with
+    /// the address of the text.
+    lines: std::cell::RefCell<Option<(usize, Vec<usize>)>>,
 }
 
 impl Ctx {
     pub fn new(options: &ReadOptions, part: &str) -> Self {
-        Ctx { options: options.clone(), warnings: Vec::new(), suppressed: 0, files: BTreeMap::new(), used: BTreeSet::new(), part: part.to_owned() }
+        Ctx {
+            options: options.clone(),
+            warnings: Vec::new(),
+            suppressed: 0,
+            files: BTreeMap::new(),
+            used: BTreeSet::new(),
+            part: part.to_owned(),
+            layouts: BTreeMap::new(),
+            upgraded: BTreeSet::new(),
+            trial: 0,
+            lines: std::cell::RefCell::new(None),
+        }
+    }
+
+    /// The 1-based line and column of byte offset `pos` in `text`.
+    fn text_pos(&self, text: &str, pos: usize) -> (u32, u32) {
+        let mut lines = self.lines.borrow_mut();
+        let address = text.as_ptr() as usize;
+        let starts = match &mut *lines {
+            Some((a, starts)) if *a == address => starts,
+            other => {
+                let starts = std::iter::once(0).chain(text.match_indices('\n').map(|(i, _)| i + 1)).collect();
+                &mut other.insert((address, starts)).1
+            }
+        };
+        let line = starts.partition_point(|&start| start <= pos);
+        let start = line.checked_sub(1).and_then(|i| starts.get(i)).copied().unwrap_or(0);
+        let column = text.get(start..pos).map_or(0, |prefix| prefix.chars().count());
+        (u32::try_from(line).unwrap_or(u32::MAX), u32::try_from(column + 1).unwrap_or(u32::MAX))
     }
 
     fn full(&self) -> bool {
@@ -76,9 +115,16 @@ pub(crate) fn read_part<T: Content>(ctx: &mut Ctx, xml: &str, root: &str) -> Res
         Some(upgraded) => {
             let error = |e: roxmltree::Error| Error::new(ErrorKind::Xml, format!("upgraded from an older DOMVersion: {e}")).at(location());
             let doc = Document::parse(&upgraded).map_err(error)?;
-            read_root(ctx, &doc, root)
+            let value = read_root(ctx, &doc, root)?;
+            ctx.layouts.insert(part.clone(), PartLayout::of(&upgraded, doc.root_element()));
+            ctx.upgraded.insert(part);
+            Ok(value)
         }
-        None => read_root(ctx, &doc, root),
+        None => {
+            let value = read_root(ctx, &doc, root)?;
+            ctx.layouts.insert(part, PartLayout::of(xml, doc.root_element()));
+            Ok(value)
+        }
     }
 }
 
@@ -126,7 +172,7 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
     }
 
     fn location(&self, node: Node<'a, 'i>) -> Location {
-        let pos = self.doc.text_pos_at(node.range().start);
+        let (line, column) = self.ctx.text_pos(self.doc.input_text(), node.range().start);
         let mut path = Vec::new();
         let mut n = Some(node);
         while let Some(e) = n.filter(Node::is_element) {
@@ -137,11 +183,17 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
             n = e.parent();
         }
         path.reverse();
-        Location { part: self.ctx.part.clone(), line: pos.row, column: pos.col, element: path.join("/") }
+        Location { part: self.ctx.part.clone(), line, column, element: path.join("/") }
+    }
+
+    /// The location of an error at `node`; only the part while a choice
+    /// tries alternatives.
+    fn error_location(&self, node: Node<'a, 'i>) -> Location {
+        if self.ctx.trial > 0 { Location { part: self.ctx.part.clone(), ..Location::default() } } else { self.location(node) }
     }
 
     pub fn error(&self, message: impl Into<String>) -> Error {
-        Error::new(ErrorKind::Schema, message).at(self.location(self.node))
+        Error::new(ErrorKind::Schema, message).at(self.error_location(self.node))
     }
 
     fn warn(&mut self, node: Node<'a, 'i>, message: String) {
@@ -156,7 +208,7 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
             self.warn(node, message);
             Ok(())
         } else {
-            Err(Error::new(ErrorKind::Schema, message).at(self.location(node)))
+            Err(Error::new(ErrorKind::Schema, message).at(self.error_location(node)))
         }
     }
 
@@ -260,7 +312,7 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
             return Err(self.error(format!("missing element <{name}>")));
         };
         if found != name {
-            return Err(Error::new(ErrorKind::Schema, format!("expected <{name}>, found <{found}>")).at(self.location(node)));
+            return Err(Error::new(ErrorKind::Schema, format!("expected <{name}>, found <{found}>")).at(self.error_location(node)));
         }
         self.next += 1;
         let mut child = Reader::new(self.ctx, self.doc, node);
@@ -382,9 +434,14 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
         let start = self.mark();
         let mut partial: Option<(T, Mark<'a, 'i>)> = None;
         let mut first_error = None;
+        let mut found = None;
+        self.ctx.trial += 1;
         for f in alternatives {
             match f(self) {
-                Ok(v) if self.complete() => return Ok(v),
+                Ok(v) if self.complete() => {
+                    found = Some(v);
+                    break;
+                }
                 Ok(v) => {
                     if partial.is_none() {
                         partial = Some((v, self.mark()));
@@ -395,6 +452,10 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
                 }
             }
             self.reset(&start);
+        }
+        self.ctx.trial -= 1;
+        if let Some(v) = found {
+            return Ok(v);
         }
         match partial {
             Some((v, mark)) if self.ctx.lenient() => {

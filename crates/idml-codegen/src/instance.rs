@@ -525,7 +525,7 @@ impl<'s> Generator<'s> {
                 } else if any && v != 0.0 && v.abs() < 1e15 && self.chance(30) {
                     let _ = write!(s, "{v:E}");
                 } else {
-                    let _ = write!(s, "{v}");
+                    s.push_str(&indesign_double(v));
                 }
                 s
             }
@@ -613,4 +613,36 @@ fn write_node(node: &Node, out: &mut String) {
         }
     }
     let _ = write!(out, "</{}>", node.name);
+}
+
+/// A finite double as InDesign writes it: the digits of the shortest form
+/// that reads back, or of the nearest decimal of that length when it reads
+/// back too; plain notation from 1e-4 to below 1e11, otherwise `d.ddde±XX`.
+fn indesign_double(v: f64) -> String {
+    if v == 0.0 {
+        return if v.is_sign_negative() { "-0" } else { "0" }.to_owned();
+    }
+    let shortest = format!("{:e}", v.abs());
+    let (mantissa, _) = shortest.split_once('e').unwrap_or((&shortest, "0"));
+    let length = mantissa.replace('.', "").len();
+    let nearest = format!("{:.*e}", length - 1, v.abs());
+    let chosen = if nearest.parse::<f64>() == Ok(v.abs()) { nearest } else { shortest };
+    let (mantissa, exp) = chosen.split_once('e').unwrap_or((&chosen, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let digits = mantissa.replace('.', "");
+    let digits = digits.trim_end_matches('0');
+    let sign = if v < 0.0 { "-" } else { "" };
+    if !(-4..11).contains(&exp) {
+        let rest = &digits[1..];
+        let point = if rest.is_empty() { "" } else { "." };
+        let exp_sign = if exp < 0 { '-' } else { '+' };
+        format!("{sign}{}{point}{rest}e{exp_sign}{:02}", &digits[..1], exp.abs())
+    } else if exp < 0 {
+        format!("{sign}0.{}{digits}", "0".repeat((-exp - 1) as usize))
+    } else if digits.len() <= exp as usize + 1 {
+        format!("{sign}{digits}{}", "0".repeat(exp as usize + 1 - digits.len()))
+    } else {
+        let (int, frac) = digits.split_at(exp as usize + 1);
+        format!("{sign}{int}.{frac}")
+    }
 }
