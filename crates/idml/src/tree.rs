@@ -86,6 +86,14 @@ pub struct XmlTree {
     /// Initial encoded length for a directly constructed producer part,
     /// including its generated XML declaration. Invalidated by any edit.
     producer_size: Option<u64>,
+    /// A processing instruction written after the XML declaration of a produced part (the
+    /// text between `<?` and `?>`, such as a new designmap's `aid` instruction).
+    instruction: Option<Arc<str>>,
+}
+
+/// The bytes a produced part's instruction adds: `<?…?>` and a line feed.
+fn instruction_len(instruction: Option<&str>) -> u64 {
+    instruction.map_or(0, |i| i.len() as u64 + 5)
 }
 
 fn err(message: impl Into<String>) -> Error {
@@ -126,14 +134,15 @@ pub(crate) fn check_xml_counts(xml: &str, options: &ReadOptions) -> Result<(), E
     Ok(())
 }
 
-fn check_element_counts(root: &Element, defaults: &[(&str, &str)], options: &ReadOptions) -> Result<u64, Error> {
+fn check_element_counts(root: &Element, defaults: &[(&str, &str)], instruction: Option<&str>, options: &ReadOptions) -> Result<u64, Error> {
     let mut pending = vec![(root, 1usize)];
-    let mut nodes = 1usize; // the declaration added to a producer part
+    // The declaration (and instruction) added to a producer part.
+    let mut nodes = 1usize + usize::from(instruction.is_some());
     let mut attributes = 0usize;
     // Producer serialization writes an XML declaration and canonical element
     // syntax. Count it before constructing records, without serializing or
     // reparsing the producer's tree.
-    let mut encoded_size = crate::xml::DECLARATION.len() as u64;
+    let mut encoded_size = crate::xml::DECLARATION.len() as u64 + instruction_len(instruction);
     while let Some((element, depth)) = pending.pop() {
         if depth > options.max_depth {
             return Err(Error::new(ErrorKind::Limit, "elements nested beyond max_depth"));
@@ -236,8 +245,15 @@ impl XmlTree {
         let mut reader = quick_xml::Reader::from_str(xml);
         reader.config_mut().check_comments = true;
         let owner = NEXT_OWNER.fetch_add(1, Ordering::Relaxed);
-        let mut tree =
-            Self { source: Arc::from(xml), records: Vec::new(), owner, root: NodeId { owner, index: 0 }, revision: 0, producer_size: None };
+        let mut tree = Self {
+            source: Arc::from(xml),
+            records: Vec::new(),
+            owner,
+            root: NodeId { owner, index: 0 },
+            revision: 0,
+            producer_size: None,
+            instruction: None,
+        };
         let document = tree.push(NodeKind::Document, None);
         tree.records[document.index].source = Some(0..xml.len());
         let mut stack = vec![document];
@@ -424,10 +440,27 @@ impl XmlTree {
         Self::from_element_with(element, &[], &ReadOptions::default()).map(|(tree, _)| tree)
     }
     pub(crate) fn from_element_with(element: &Element, defaults: &[(&str, &str)], options: &ReadOptions) -> Result<(Self, u64), Error> {
-        let size = check_element_counts(element, defaults, options)?;
+        Self::from_element_with_instruction(element, defaults, None, options)
+    }
+
+    /// A produced part with a processing instruction after its XML declaration.
+    pub(crate) fn from_element_with_instruction(
+        element: &Element,
+        defaults: &[(&str, &str)],
+        instruction: Option<&str>,
+        options: &ReadOptions,
+    ) -> Result<(Self, u64), Error> {
+        let size = check_element_counts(element, defaults, instruction, options)?;
         let owner = NEXT_OWNER.fetch_add(1, Ordering::Relaxed);
-        let mut tree =
-            Self { source: Arc::from(""), records: Vec::new(), owner, root: NodeId { owner, index: 0 }, revision: 0, producer_size: Some(size) };
+        let mut tree = Self {
+            source: Arc::from(""),
+            records: Vec::new(),
+            owner,
+            root: NodeId { owner, index: 0 },
+            revision: 0,
+            producer_size: Some(size),
+            instruction: instruction.map(Arc::from),
+        };
         let root = tree.build_element(element, defaults)?;
         tree.root = root;
         Ok((tree, size))
@@ -441,6 +474,10 @@ impl XmlTree {
     }
     pub fn original_xml(&self) -> &str {
         &self.source
+    }
+    /// The processing instruction written after the XML declaration of a produced part.
+    pub fn producer_instruction(&self) -> Option<&str> {
+        self.instruction.as_deref().filter(|_| self.source.is_empty())
     }
     fn record(&self, id: NodeId) -> Result<&Record, Error> {
         self.records
@@ -802,7 +839,15 @@ impl XmlTree {
     }
     fn from_element_in(root: &Element, bindings: &BTreeMap<String, String>) -> Result<Self, Error> {
         let owner = NEXT_OWNER.fetch_add(1, Ordering::Relaxed);
-        let mut tree = Self { source: Arc::from(""), records: Vec::new(), owner, root: NodeId { owner, index: 0 }, revision: 0, producer_size: None };
+        let mut tree = Self {
+            source: Arc::from(""),
+            records: Vec::new(),
+            owner,
+            root: NodeId { owner, index: 0 },
+            revision: 0,
+            producer_size: None,
+            instruction: None,
+        };
         tree.root = tree.build_element_in(root, &[], bindings.clone())?;
         Ok(tree)
     }
@@ -1010,7 +1055,8 @@ impl XmlTree {
         self.check_limits_and_size(options).map(|_| ())
     }
     pub(crate) fn check_limits_and_size(&self, options: &ReadOptions) -> Result<u64, Error> {
-        let mut count = usize::from(self.source.is_empty()); // declaration on produced parts
+        // The declaration (and instruction) on produced parts.
+        let mut count = usize::from(self.source.is_empty()) + usize::from(self.producer_instruction().is_some());
         let mut attributes = 0usize;
         for record in self.records.iter().filter(|record| !record.deleted) {
             let added = match &record.kind {
@@ -1051,10 +1097,14 @@ impl XmlTree {
             let serialized = self.serialize(start)?;
             let mut counts_options = options.clone();
             if self.source.is_empty() {
-                counts_options.max_nodes = counts_options.max_nodes.saturating_sub(1);
+                counts_options.max_nodes = counts_options.max_nodes.saturating_sub(1 + usize::from(self.producer_instruction().is_some()));
             }
             check_xml_counts(&serialized, &counts_options)?;
-            (serialized.len() as u64).saturating_add(if self.source.is_empty() { crate::xml::DECLARATION.len() as u64 } else { 0 })
+            (serialized.len() as u64).saturating_add(if self.source.is_empty() {
+                crate::xml::DECLARATION.len() as u64 + instruction_len(self.producer_instruction())
+            } else {
+                0
+            })
         };
         if size > options.max_entry_size || size > options.max_size {
             return Err(Error::new(ErrorKind::Limit, "tree exceeds size budget"));

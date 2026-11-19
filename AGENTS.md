@@ -52,6 +52,10 @@ retain useful guidance, and remove stale information.**
   an existing idPkg namespace binding. A 21.5.1.73 native control ignored new
   story payloads with a redundant declaration on the reference; preserve such
   source XML on reads rather than turning this observation into a parse guard.
+- A designmap built by `Package::from_elements`/`Package::new` carries InDesign's
+  `aid` processing instruction for its DOMVersion (`XmlTree::producer_instruction`,
+  counted in size and node limits like the generated declaration). InDesign 2026
+  refuses to open a package whose designmap lacks it; read designmaps keep their own.
 - `evidence.rs`: caller-supplied operation-scoped observations, separate from
   schema acceptance. Incomplete environment/provenance and conflicting evidence
   remain unknown; native reopening never implies rendering equivalence.

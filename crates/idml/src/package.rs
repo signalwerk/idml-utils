@@ -319,7 +319,7 @@ impl Package {
         }
         check_producer_envelope(options, SOURCE_CONTAINER)?;
         let mut total_size = (crate::MIMETYPE.len() + SOURCE_CONTAINER.len()) as u64;
-        let mut build = |element: &Element| {
+        let mut build = |element: &Element, instruction: Option<&str>| {
             let version = default_version.to_string();
             let mut defaults = Vec::new();
             if element.attr("xmlns:idPkg").is_none() {
@@ -331,7 +331,7 @@ impl Package {
             // The tree preflight sees only the budget still available to this
             // part, so an oversized total is rejected before arena allocation.
             let remaining = ReadOptions { max_size: options.max_size.saturating_sub(total_size), ..options.clone() };
-            let (t, size) = XmlTree::from_element_with(element, &defaults, &remaining)?;
+            let (t, size) = XmlTree::from_element_with_instruction(element, &defaults, instruction, &remaining)?;
             total_size = total_size.saturating_add(size);
             if total_size > options.max_size {
                 return Err(Error::new(ErrorKind::Limit, "producer package exceeds max_size"));
@@ -339,7 +339,10 @@ impl Package {
             t.check_limits(options)?;
             Ok::<_, Error>(t)
         };
-        let root = build(designmap)?;
+        // InDesign recognizes a designmap by its `aid` instruction; a new one gets the
+        // instruction for its own DOMVersion.
+        let aid = aid_instruction(Some(designmap.attr("DOMVersion").unwrap_or(&default_version.to_string())));
+        let root = build(designmap, Some(&aid))?;
         if !root.name(root.root()).is_some_and(|n| n.namespace.is_empty() && n.local == "Document") {
             return Err(Error::new(ErrorKind::Package, "expected Document"));
         }
@@ -347,7 +350,7 @@ impl Package {
         trees.insert("designmap.xml".into(), root);
         for (path, element) in parts {
             crate::PartPath::new(path.clone()).map_err(|e| Error::new(ErrorKind::Package, e.to_string()))?;
-            if trees.insert(path.clone(), build(element)?).is_some() {
+            if trees.insert(path.clone(), build(element, None)?).is_some() {
                 return Err(Error::new(ErrorKind::Package, "duplicate part path"));
             }
         }
@@ -499,7 +502,13 @@ impl Package {
         let mut rendered = BTreeMap::new();
         for (path, tree) in &self.parts {
             let xml = tree.to_xml().map_err(|e| e.in_part(path))?;
-            let xml = if tree.original_xml().is_empty() { format!("{}{xml}", crate::xml::DECLARATION) } else { xml };
+            let xml = if !tree.original_xml().is_empty() {
+                xml
+            } else if let Some(instruction) = tree.producer_instruction() {
+                format!("{}<?{instruction}?>\n{xml}", crate::xml::DECLARATION)
+            } else {
+                format!("{}{xml}", crate::xml::DECLARATION)
+            };
             rendered.insert(path.clone(), xml.into_bytes());
         }
         let layout: BTreeMap<_, _> = self.entries.iter().enumerate().map(|(i, e)| (e.path.as_str(), (i, e.compression))).collect();
@@ -891,4 +900,43 @@ pub(crate) fn root_file(container: &[u8]) -> Result<String, String> {
         .and_then(|n| n.attribute("full-path"))
         .map(str::to_owned)
         .ok_or_else(|| "no rootfile".to_owned())
+}
+
+/// The InDesign builds of the published schema snapshots, by DOMVersion.
+const SNAPSHOT_BUILDS: [(&str, &str); 7] = [
+    ("7.0", "7.0(535)"),
+    ("7.5", "7.5(333)"),
+    ("8.0", "8.0(370)"),
+    ("10.0", "10.0(70)"),
+    ("11.0", "11.0(72)"),
+    ("15.0", "15.0(209)"),
+    ("21.5", "21.5(64)"),
+];
+
+/// The designmap's `aid` processing instruction (without `<?` and `?>`) for a new package
+/// of this DOMVersion. The product names the snapshot build when one is known; otherwise the
+/// version with build 0. A read designmap keeps its own instruction.
+pub(crate) fn aid_instruction(dom_version: Option<&str>) -> String {
+    let version = dom_version.unwrap_or("6.0");
+    let product = SNAPSHOT_BUILDS.iter().find(|(v, _)| *v == version).map_or_else(|| format!("{version}(0)"), |(_, p)| (*p).to_owned());
+    format!("aid style=\"50\" type=\"document\" readerVersion=\"6.0\" featureSet=\"257\" product=\"{product}\" ")
+}
+
+#[cfg(test)]
+mod aid_tests {
+    use super::*;
+
+    #[test]
+    fn new_designmaps_carry_the_aid_instruction() -> Result<(), Error> {
+        let package = Package::new("8.0".parse()?, "d")?;
+        let bytes = package.write()?;
+        let read = Package::read(&bytes, &ReadOptions::source())?.value;
+        let xml = read.document().original_xml();
+        assert!(xml.contains("<?aid style=\"50\" type=\"document\" readerVersion=\"6.0\" featureSet=\"257\" product=\"8.0(370)\" ?>"), "{xml}");
+        // Writing a read package again keeps its single instruction.
+        let again = Package::read(&read.write()?, &ReadOptions::source())?.value;
+        assert_eq!(again.document().original_xml().matches("<?aid").count(), 1);
+        assert!(aid_instruction(Some("19.0")).contains("product=\"19.0(0)\""));
+        Ok(())
+    }
 }
