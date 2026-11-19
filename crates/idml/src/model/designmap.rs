@@ -1773,6 +1773,8 @@ pub enum Destination {
     Record(DestinationRecord),
     /// `object_type, xsd:string`. Since IDML 6.0.
     Object(String),
+    /// `list_type, element ListItem, element ListItem, element ListItem, element ListItem, element ListItem`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    List(DestinationList),
 }
 
 impl Content for Destination {
@@ -1784,6 +1786,7 @@ impl Content for Destination {
         *v = r.choice("Destination", &[
             |r| { Ok(Self::Record(DestinationRecord::read(r)?)) },
             |r| { r.fixed("type", "object", false)?; Ok(Self::Object(r.text()?)) },
+            |r| { Ok(Self::List(DestinationList::read(r)?)) },
         ])?;
         Ok(())
     }
@@ -1792,7 +1795,65 @@ impl Content for Destination {
         match self {
             Self::Record(v) => { v.write(w) }
             Self::Object(v) => { w.fixed("type", "object")?; w.text(v) }
+            Self::List(v) => { v.write(w) }
         }
+    }
+}
+
+/// Schema: `Hyperlink_Object/<Properties>/<Destination>/(list_type, element ListItem, element ListItem, element ListItem, element ListItem, element ListItem)`.
+///
+/// Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+#[derive(Debug, Clone, PartialEq)]
+pub struct DestinationList {
+    /// `<ListItem>`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    pub list_item: String,
+    /// `<ListItem>`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    pub list_item_2: String,
+    /// `<ListItem>`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    pub list_item_3: i32,
+    /// `<ListItem>`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    pub list_item_4: i32,
+    /// `<ListItem>`. Schema amendment: hyperlink-list: 103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid. (applies 6.0..=*)
+    pub list_item_5: i32,
+}
+
+impl DestinationList {
+    /// A value with the required data; everything optional is absent.
+    pub fn new(list_item: impl Into<String>, list_item_2: impl Into<String>, list_item_3: i32, list_item_4: i32, list_item_5: i32) -> Self {
+        Self {
+            list_item: list_item.into(),
+            list_item_2: list_item_2.into(),
+            list_item_3,
+            list_item_4,
+            list_item_5,
+        }
+    }
+}
+
+impl Content for DestinationList {
+    fn placeholder() -> Self {
+        Self { list_item: String::new(), list_item_2: String::new(), list_item_3: 0, list_item_4: 0, list_item_5: 0 }
+    }
+
+    fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
+        r.known(&["ListItem", "ListItem", "ListItem", "ListItem", "ListItem"])?;
+        r.fixed("type", "list", false)?;
+        v.list_item = r.elem("ListItem", |r| { r.fixed("type", "string", false)?; r.text() })?;
+        v.list_item_2 = r.elem("ListItem", |r| { r.fixed("type", "string", false)?; r.text() })?;
+        v.list_item_3 = r.elem("ListItem", |r| { r.fixed("type", "long", false)?; r.text() })?;
+        v.list_item_4 = r.elem("ListItem", |r| { r.fixed("type", "long", false)?; r.text() })?;
+        v.list_item_5 = r.elem("ListItem", |r| { r.fixed("type", "long", false)?; r.text() })?;
+        Ok(())
+    }
+
+    fn write(&self, w: &mut Writer) -> Result<(), Error> {
+        w.fixed("type", "list")?;
+        let v = &self.list_item; w.elem("ListItem", |w| { w.fixed("type", "string")?; w.text(v) })?;
+        let v = &self.list_item_2; w.elem("ListItem", |w| { w.fixed("type", "string")?; w.text(v) })?;
+        let v = &self.list_item_3; w.elem("ListItem", |w| { w.fixed("type", "long")?; w.text(v) })?;
+        let v = &self.list_item_4; w.elem("ListItem", |w| { w.fixed("type", "long")?; w.text(v) })?;
+        let v = &self.list_item_5; w.elem("ListItem", |w| { w.fixed("type", "long")?; w.text(v) })?;
+        Ok(())
     }
 }
 
@@ -3019,8 +3080,8 @@ pub struct Hyperlink {
     pub self_: String,
     /// `@Name`: `xsd:string`. Since IDML 6.0.
     pub name: Option<String>,
-    /// `@Source`: `xsd:string`. Since IDML 6.0.
-    pub source: String,
+    /// `@Source`: `xsd:string`. Since IDML 6.0. Schema amendment: dangling-hyperlink: Native exports DOMVersion 12.0 (product 12.0(81), yanntrividic thesis.idml) and 20.4 (product 20.5(66), Zenodo DigComp 3.0) contain Hyperlink objects with no Source. Fresh 21.5.1.73 schema requires it; retain these dangling hyperlinks. (applies 6.0..=*)
+    pub source: Option<String>,
     /// `@Visible`: `xsd:boolean`. Since IDML 6.0.
     pub visible: Option<bool>,
     /// `@Highlight`: `HyperlinkAppearanceHighlight_EnumValue`. Since IDML 6.0.
@@ -3043,11 +3104,11 @@ pub struct Hyperlink {
 
 impl Hyperlink {
     /// A value with the required data; everything optional is absent.
-    pub fn new(self_: impl Into<String>, source: impl Into<String>) -> Self {
+    pub fn new(self_: impl Into<String>) -> Self {
         Self {
             self_: self_.into(),
             name: None,
-            source: source.into(),
+            source: None,
             visible: None,
             highlight: None,
             width: None,
@@ -3064,7 +3125,7 @@ impl Hyperlink {
     fn read_attributes(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
         v.self_ = r.attr("Self")?;
         v.name = r.opt_attr("Name")?;
-        v.source = r.attr("Source")?;
+        v.source = r.opt_attr("Source")?;
         v.visible = r.opt_attr("Visible")?;
         v.highlight = r.opt_attr("Highlight")?;
         v.width = r.opt_attr("Width")?;
@@ -3080,7 +3141,7 @@ impl Hyperlink {
     fn write_attributes(&self, w: &mut Writer) -> Result<(), Error> {
         w.attr("Self", &self.self_)?;
         w.opt_attr("Name", &self.name)?;
-        w.attr("Source", &self.source)?;
+        w.opt_attr("Source", &self.source)?;
         w.opt_attr("Visible", &self.visible)?;
         w.opt_attr("Highlight", &self.highlight)?;
         w.opt_attr("Width", &self.width)?;
@@ -3095,7 +3156,7 @@ impl Hyperlink {
 
 impl Content for Hyperlink {
     fn placeholder() -> Self {
-        Self { self_: String::new(), name: None, source: String::new(), visible: None, highlight: None, width: None, border_style: None, hidden: None, destination_unique_key: None, epub_aria_role: None, hypherlink_alt_text: None, properties: None }
+        Self { self_: String::new(), name: None, source: None, visible: None, highlight: None, width: None, border_style: None, hidden: None, destination_unique_key: None, epub_aria_role: None, hypherlink_alt_text: None, properties: None }
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
@@ -3257,8 +3318,8 @@ pub struct HyperlinkPageDestination {
     pub destination_page: Option<String>,
     /// `@ViewSetting`: `HyperlinkDestinationPageSetting_EnumValue`. Since IDML 6.0.
     pub view_setting: Option<HyperlinkDestinationPageSetting>,
-    /// `@ViewPercentage`: `xsd:double {minInclusive="5" maxInclusive="4000"}`. Since IDML 6.0.
-    pub view_percentage: Option<Double5To4000>,
+    /// `@ViewPercentage`: `xsd:double {minInclusive="0" maxInclusive="4000"}`. Since IDML 6.0.
+    pub view_percentage: Option<Double0To4000>,
     /// `@Hidden`: `xsd:boolean`. Since IDML 6.0.
     pub hidden: Option<bool>,
     /// `@DestinationUniqueKey`: `xsd:int`. Since IDML 6.0.
@@ -4917,8 +4978,8 @@ pub struct PdfComment {
     pub comment_is_orphan: Option<bool>,
     /// `@CommentIsApplied`: `xsd:boolean`. Since IDML > 11.0 <= 15.0.
     pub comment_is_applied: Option<bool>,
-    /// `@CommentDestination`: `xsd:string`. Since IDML > 11.0 <= 15.0.
-    pub comment_destination: String,
+    /// `@CommentDestination`: `xsd:string`. Since IDML > 11.0 <= 15.0. Schema amendment: orphan-pdf-comment: Native InDesign 17.0(105) export okapi 856-2.idml contains orphan PDFComment (CommentIsOrphan=true) without CommentDestination. Fresh 21.5.1.73 schema requires a destination for every comment. (applies 17.0..=*)
+    pub comment_destination: Option<String>,
     /// `<Properties>`. Since IDML > 11.0 <= 15.0.
     pub properties: Option<PdfCommentProperties>,
     /// `<Reply>`. Since IDML > 11.0 <= 15.0.
@@ -4927,7 +4988,7 @@ pub struct PdfComment {
 
 impl PdfComment {
     /// A value with the required data; everything optional is absent.
-    pub fn new(self_: impl Into<String>, comment_reviewer: impl Into<String>, comment_content: impl Into<String>, comment_date: DateTime, comment_type: CommentTypeEnum, comment_file_path: impl Into<String>, comment_destination: impl Into<String>) -> Self {
+    pub fn new(self_: impl Into<String>, comment_reviewer: impl Into<String>, comment_content: impl Into<String>, comment_date: DateTime, comment_type: CommentTypeEnum, comment_file_path: impl Into<String>) -> Self {
         Self {
             self_: self_.into(),
             comment_reviewer: comment_reviewer.into(),
@@ -4938,7 +4999,7 @@ impl PdfComment {
             comment_status: None,
             comment_is_orphan: None,
             comment_is_applied: None,
-            comment_destination: comment_destination.into(),
+            comment_destination: None,
             properties: None,
             reply: Vec::new(),
         }
@@ -4955,7 +5016,7 @@ impl PdfComment {
         v.comment_status = r.opt_attr("CommentStatus")?;
         v.comment_is_orphan = r.opt_attr("CommentIsOrphan")?;
         v.comment_is_applied = r.opt_attr("CommentIsApplied")?;
-        v.comment_destination = r.attr("CommentDestination")?;
+        v.comment_destination = r.opt_attr("CommentDestination")?;
         Ok(())
     }
 
@@ -4970,14 +5031,14 @@ impl PdfComment {
         w.opt_attr("CommentStatus", &self.comment_status)?;
         w.opt_attr("CommentIsOrphan", &self.comment_is_orphan)?;
         w.opt_attr("CommentIsApplied", &self.comment_is_applied)?;
-        w.attr("CommentDestination", &self.comment_destination)?;
+        w.opt_attr("CommentDestination", &self.comment_destination)?;
         Ok(())
     }
 }
 
 impl Content for PdfComment {
     fn placeholder() -> Self {
-        Self { self_: String::new(), comment_reviewer: String::new(), comment_content: String::new(), comment_date: DateTime::placeholder(), comment_type: CommentTypeEnum::StickyNoteType, comment_file_path: String::new(), comment_status: None, comment_is_orphan: None, comment_is_applied: None, comment_destination: String::new(), properties: None, reply: Vec::new() }
+        Self { self_: String::new(), comment_reviewer: String::new(), comment_content: String::new(), comment_date: DateTime::placeholder(), comment_type: CommentTypeEnum::StickyNoteType, comment_file_path: String::new(), comment_status: None, comment_is_orphan: None, comment_is_applied: None, comment_destination: None, properties: None, reply: Vec::new() }
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {

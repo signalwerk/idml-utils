@@ -5,7 +5,9 @@
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 
+#[cfg(feature = "owned")]
 use idml::PartFile;
+#[cfg(feature = "owned")]
 use idml::model::*;
 use idml_codegen::schema::Schema;
 
@@ -16,8 +18,10 @@ pub fn schema() -> Schema {
 
 /// Reads a part document with the generated type for its schema file and
 /// writes it again; also returns the warnings.
+#[cfg(feature = "owned")]
 pub type RoundTrip = fn(&str, &idml::ReadOptions) -> Result<(String, Vec<idml::Warning>), String>;
 
+#[cfg(feature = "owned")]
 fn round_trip<T: PartFile>(xml: &str, options: &idml::ReadOptions) -> Result<(String, Vec<idml::Warning>), String> {
     let parsed = T::from_xml(xml, options).map_err(|e| e.to_string())?;
     Ok((parsed.value.to_xml().map_err(|e| e.to_string())?, parsed.warnings))
@@ -25,12 +29,14 @@ fn round_trip<T: PartFile>(xml: &str, options: &idml::ReadOptions) -> Result<(St
 
 /// The reader for a part schema file, by its path without extension
 /// (older snapshots have `.rng` files).
+#[cfg(feature = "owned")]
 pub fn part(file: &str) -> Option<RoundTrip> {
     let stem = file.rsplit_once('.').map_or(file, |(s, _)| s);
     PARTS.iter().find(|(f, _)| f.strip_suffix(".rnc") == Some(stem)).map(|(_, r)| *r)
 }
 
 /// The part types by schema file. A new part schema fails `parts_are_complete`.
+#[cfg(feature = "owned")]
 pub const PARTS: &[(&str, RoundTrip)] = &[
     ("MasterSpreads/MasterSpread.rnc", round_trip::<MasterSpreadFile>),
     ("Resources/Fonts.rnc", round_trip::<FontsFile>),

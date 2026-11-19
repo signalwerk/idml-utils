@@ -1,10 +1,16 @@
-# Content InDesign writes but its own schemas do not allow. idml-codegen adds
-# each pattern to the content of the element definition, in every schema
-# snapshot that defines the definition and every name the pattern refers to:
-# into the interleave of child elements if the content has one, else after
-# the existing content.
-#
-# definition	pattern	evidence
-CharacterStyleRange_Object	Endnote_Object*	InDesign exports of DOMVersion 14.0 to 21.5 have <Endnote> in text, where the endnote reference is; the schemas allow it only in <Story>.
-CharacterStyleRange_Object	TextBox_Object*	An InDesign export of DOMVersion 19.0 has a text field anchored in a table cell's text; the schemas allow only <FormField> there.
-EndnoteRange_Object	(ParagraphStyleRange_Object* & CharacterStyleRange_Object* & HyperlinkTextSource_Object* & element Content {text}*)	InDesign exports of DOMVersion 14.0 to 21.5 have the endnote's text in <EndnoteRange>: <Content>, <CharacterStyleRange>, <ParagraphStyleRange> and <HyperlinkTextSource>; the schemas allow no content.
+# Evidence-backed corrections to the effective model. Upstream files and history stay raw.
+# Inclusive DOM bounds describe where the correction is applied, not an introduction date.
+# * is an open upper bound; future snapshots must be reviewed against these corrections.
+# target: definition followed by inline element names or @attribute; add appends content,
+# choice adds a content alternative, replace replaces the target's value/content pattern.
+# id	min DOM	max DOM	target	action	pattern	evidence
+text-endnote	14.0	*	CharacterStyleRange_Object	add	Endnote_Object*	InDesign exports DOMVersion 14.0–21.5 contain Endnote in text (grefel-indesign-endnotes corpus); fresh InDesign 21.5.1.73 schema still excludes it.
+text-field	8.0	*	CharacterStyleRange_Object	add	TextBox_Object*	InDesign DOMVersion 19.0 export has a TextBox anchored in table-cell text; fresh 21.5.1.73 schema still allows only FormField here.
+endnote-content	14.0	*	EndnoteRange_Object	add	(ParagraphStyleRange_Object* & CharacterStyleRange_Object* & HyperlinkTextSource_Object* & element Content {text}*)	InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content.
+hyperlink-list	6.0	*	Hyperlink_Object/Properties/Destination	choice	(list_type, element ListItem { string_type, xsd:string }, element ListItem { string_type, xsd:string }, element ListItem { long_type, xsd:int }, element ListItem { long_type, xsd:int }, element ListItem { long_type, xsd:int })	103 corpus exports DOMVersion 13.1–21.0 serialize external destinations as two strings and three integers; OpenChain three-way-case-study-bb-ossc-2024-03-20.idml and reg3project 096-097_S2500I.idml. Fresh 21.5.1.73 schema instead lists FileName, Volumn, DirectoryId, DataLinkClassId, DestinationUid.
+cross-reference-text	6.0	*	CrossReferenceSource_Object	add	element Content {text}*	Corpus exports DOMVersion 8.1, 12.0 and 21.2 include Content in CrossReferenceSource (including alt.NIME2026-Pictorials-InDesign-template.idml); absent in fresh 21.5.1.73 schema.
+story-hyperlink-source	6.0	*	Story_Object	add	HyperlinkTextSource_Object*	okapi-idml-icml-tests sample_brochure2.idml and sample_magazine.idml contain direct Story/HyperlinkTextSource children.
+cell-xml	6.0	*	Cell_Object	add	XMLElement_Object*	mcneel rhinopython101manual Primer_Python_pre_CS5.idml contains Cell/XMLElement; absent in fresh 21.5.1.73 schema.
+hyperlink-zero-zoom	6.0	*	HyperlinkPageDestination_Object/@ViewPercentage	replace	xsd:double {minInclusive="0" maxInclusive="4000"}	okapi 03-hyperlink-and-table-content.idml writes ViewPercentage="0"; fresh 21.5.1.73 schema restricts it to 5..4000. Applies only to this attribute.
+dangling-hyperlink	6.0	*	Hyperlink_Object/@Source	optional	empty	Native exports DOMVersion 12.0 (product 12.0(81), yanntrividic thesis.idml) and 20.4 (product 20.5(66), Zenodo DigComp 3.0) contain Hyperlink objects with no Source. Fresh 21.5.1.73 schema requires it; retain these dangling hyperlinks.
+orphan-pdf-comment	17.0	*	PDFComment_Object/@CommentDestination	optional	empty	Native InDesign 17.0(105) export okapi 856-2.idml contains orphan PDFComment (CommentIsOrphan=true) without CommentDestination. Fresh 21.5.1.73 schema requires a destination for every comment.

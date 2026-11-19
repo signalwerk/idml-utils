@@ -1,4 +1,5 @@
-//! Package-level behaviour: building, reading, writing and diagnostics.
+#![cfg(feature = "owned")]
+//! OwnedPackage-level behaviour: building, reading, writing and diagnostics.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
@@ -6,7 +7,7 @@ use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Write};
 
 use idml::model::*;
-use idml::{ErrorKind, MIMETYPE, Mode, Package, Part, PartFile, PartPath, ReadOptions};
+use idml::{ErrorKind, MIMETYPE, Mode, OwnedPackage, Part, PartFile, PartPath, ReadOptions};
 
 fn zip(files: &[(&str, &str)]) -> Vec<u8> {
     let mut w = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -32,6 +33,23 @@ fn unzip(bytes: &[u8]) -> BTreeMap<String, String> {
 
 const CONTAINER: &str = r#"<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="designmap.xml" media-type="text/xml"/></rootfiles></container>"#;
 
+#[test]
+fn lenient_envelopes_and_nonstandard_rootfile_paths_are_preserved() {
+    let document = r#"<Document DOMVersion="21.5" Self="d"/>"#;
+    let bytes = zip(&[("mimetype", "nonstandard"), ("designmap.xml", document)]);
+    let package = OwnedPackage::read(&bytes, &ReadOptions::lenient()).unwrap().value;
+    assert_eq!(unzip(&package.write().unwrap()), unzip(&bytes));
+
+    let container = CONTAINER.replace("designmap.xml", "nested/document.xml");
+    let bytes = zip(&[("mimetype", MIMETYPE), ("META-INF/container.xml", &container), ("nested/document.xml", document)]);
+    let mut package = OwnedPackage::read(&bytes, &ReadOptions::default()).unwrap().value;
+    package.document.self_ = "edited".into();
+    let written = unzip(&package.write().unwrap());
+    assert_eq!(written["META-INF/container.xml"], container);
+    assert!(!written.contains_key("designmap.xml"));
+    assert!(written["nested/document.xml"].contains("Self=\"edited\""));
+}
+
 fn story(text: &str) -> StoryFile {
     let mut csr = CharacterStyleRange { applied_character_style: Some("CharacterStyle/$ID/[No character style]".into()), ..Default::default() };
     csr.children.push(CharacterStyleRangeChild::Content(text.into()));
@@ -49,7 +67,7 @@ fn a_package_built_in_code_round_trips() {
     document.story_list = Some(vec![idml::Token::new("u1").unwrap()]);
     document.story.push(Part::new(PartPath::new("Stories/Story_u1.xml").unwrap(), story("Tab\there, <&> and \u{7} indent")));
     document.graphic = Some(GraphicFile::default());
-    let package = Package::new(document);
+    let package = OwnedPackage::new(document);
 
     let bytes = package.write().unwrap();
     let files = unzip(&bytes);
@@ -59,7 +77,7 @@ fn a_package_built_in_code_round_trips() {
     assert!(files["designmap.xml"].contains(r#"<idPkg:Story src="Stories/Story_u1.xml" />"#));
     assert!(files["Stories/Story_u1.xml"].contains("<Content>Tab\there, &lt;&amp;&gt; and <?ACE 7?> indent</Content>"));
 
-    let read = Package::read(&bytes, &ReadOptions::default()).unwrap();
+    let read = OwnedPackage::read(&bytes, &ReadOptions::default()).unwrap();
     assert!(read.warnings.is_empty(), "{:?}", read.warnings);
     assert_eq!(read.value, package);
     // Written again with the layout read, the package keeps its bytes.
@@ -79,7 +97,7 @@ fn a_read_package_keeps_its_layout() {
         <Story Self=\"u1\" TrackChanges=\"false\" AppliedTOCStyle=\"n\">\n\t\t<ParagraphStyleRange>\n\t\t\t<CharacterStyleRange>\n\t\t\t\t\
         <Content>a</Content>\n\t\t\t\t<Br></Br>\n\t\t\t\t<Content></Content>\n\t\t\t</CharacterStyleRange>\n\t\t</ParagraphStyleRange>\n\t</Story>\n</idPkg:Story>";
     let bytes = zip(&[("mimetype", MIMETYPE), ("designmap.xml", designmap), ("META-INF/container.xml", CONTAINER), ("Stories/Story_u1.xml", story)]);
-    let read = Package::read(&bytes, &ReadOptions::default()).unwrap();
+    let read = OwnedPackage::read(&bytes, &ReadOptions::default()).unwrap();
     assert!(read.warnings.is_empty(), "{:?}", read.warnings);
     let written = read.value.write().unwrap();
     assert_eq!(unzip(&written), unzip(&bytes));
@@ -91,6 +109,7 @@ fn a_read_package_keeps_its_layout() {
 
     // Without the layout: InDesign's order and form.
     let mut package = read.value;
+    package.discard_source();
     package.layout = idml::Layout::default();
     let files = unzip(&package.write().unwrap());
     assert!(files["Stories/Story_u1.xml"].contains("<Story Self=\"u1\" AppliedTOCStyle=\"n\" TrackChanges=\"false\">"));
@@ -161,13 +180,13 @@ fn writing_rejects_what_xml_cannot_hold_and_duplicate_paths() {
     let mut story = Story::new("u1");
     story.story_title = Some("\u{FFFE}".into());
     let e = StoryFile { story: vec![story] }.to_xml().unwrap_err();
-    assert_eq!(e.kind(), ErrorKind::Package);
+    assert_eq!(e.kind(), ErrorKind::Write);
 
     let mut document = Document::new("d");
     let path = PartPath::new("Stories/Story_u1.xml").unwrap();
     document.story.push(Part::new(path.clone(), StoryFile::default()));
     document.story.push(Part::new(path, StoryFile::default()));
-    assert_eq!(Package::new(document).write().unwrap_err().kind(), ErrorKind::Package);
+    assert_eq!(OwnedPackage::new(document).write().unwrap_err().kind(), ErrorKind::Package);
 }
 
 #[test]
@@ -181,7 +200,7 @@ fn nesting_is_limited_before_parsing() {
         xml.push_str(&"</Group>".repeat(n));
         xml + "</Spread></idPkg:Spread>"
     };
-    let limit = ReadOptions::default().max_depth;
+    let limit = ReadOptions::projection().max_depth;
     // At the limit, in a thread with the default 2 MiB test stack, even
     // unoptimized.
     let at_limit = nested(limit - 2);
@@ -200,7 +219,7 @@ fn nesting_is_limited_before_parsing() {
 fn unreferenced_files_are_kept() {
     let designmap = r#"<Document xmlns:idPkg="http://ns.adobe.com/AdobeInDesign/idml/1.0/packaging" DOMVersion="21.5" Self="d"/>"#;
     let bytes = zip(&[("mimetype", idml::MIMETYPE), ("META-INF/container.xml", CONTAINER), ("designmap.xml", designmap), ("Extra/notes.txt", "hi")]);
-    let read = Package::read(&bytes, &ReadOptions::default()).unwrap();
+    let read = OwnedPackage::read(&bytes, &ReadOptions::default()).unwrap();
     assert_eq!(read.warnings.len(), 1);
     assert_eq!(read.value.other_files.get("Extra/notes.txt").map(Vec::as_slice), Some(&b"hi"[..]));
     assert_eq!(unzip(&read.value.write().unwrap())["Extra/notes.txt"], "hi");

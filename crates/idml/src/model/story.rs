@@ -292,7 +292,7 @@ pub struct Cell {
     pub applied_cell_style_priority: Option<i32>,
     /// `<Properties>`. Since IDML 6.0.
     pub properties: Option<CellProperties>,
-    /// `<HiddenText>`, `<Button>`, `<GaijiOwnedItemObject>`, `<Footnote>`, `<Endnote>`, `<TextVariableInstance>`, `<Table>`, `<ParagraphStyleRange>`, `<CharacterStyleRange>`, `<Oval>`, `<Rectangle>`, `<GraphicLine>`, `<TextFrame>`, `<Polygon>`, `<EndnoteTextFrame>`, `<Change>`, `<Note>` in document order
+    /// `<HiddenText>`, `<Button>`, `<GaijiOwnedItemObject>`, `<Footnote>`, `<Endnote>`, `<TextVariableInstance>`, `<Table>`, `<ParagraphStyleRange>`, `<CharacterStyleRange>`, `<Oval>`, `<Rectangle>`, `<GraphicLine>`, `<TextFrame>`, `<Polygon>`, `<EndnoteTextFrame>`, `<Change>`, `<Note>`, `<XMLElement>` in document order
     pub children: Vec<CellChild>,
 }
 
@@ -607,7 +607,7 @@ impl Content for Cell {
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
-        r.known(&["Properties", "HiddenText", "Button", "GaijiOwnedItemObject", "Footnote", "Endnote", "TextVariableInstance", "Table", "ParagraphStyleRange", "CharacterStyleRange", "Oval", "Rectangle", "GraphicLine", "TextFrame", "Polygon", "EndnoteTextFrame", "Change", "Note"])?;
+        r.known(&["Properties", "HiddenText", "Button", "GaijiOwnedItemObject", "Footnote", "Endnote", "TextVariableInstance", "Table", "ParagraphStyleRange", "CharacterStyleRange", "Oval", "Rectangle", "GraphicLine", "TextFrame", "Polygon", "EndnoteTextFrame", "Change", "Note", "XMLElement"])?;
         Self::read_attributes(r, v)?;
         r.opt_elem_into("Properties", &mut v.properties)?;
         loop {
@@ -629,6 +629,7 @@ impl Content for Cell {
                 Some("EndnoteTextFrame") => v.children.push(CellChild::EndnoteTextFrame(r.boxed("EndnoteTextFrame")?)),
                 Some("Change") => v.children.push(CellChild::Change(r.boxed("Change")?)),
                 Some("Note") => v.children.push(CellChild::Note(r.boxed("Note")?)),
+                Some("XMLElement") => v.children.push(CellChild::XmlElement(r.boxed("XMLElement")?)),
                 _ => break,
             }
         }
@@ -643,7 +644,7 @@ impl Content for Cell {
     }
 }
 
-/// Schema: `Cell_Object/(<HiddenText>* & <Button>* & <GaijiOwnedItemObject>* & <Footnote>* & <Endnote>* & <TextVariableInstance>* & <Table>* & <ParagraphStyleRange>* & <CharacterStyleRange>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <TextFrame>* & <Polygon>* & <EndnoteTextFrame>* & <Change>* & <Note>*)`.
+/// Schema: `Cell_Object/(<HiddenText>* & <Button>* & <GaijiOwnedItemObject>* & <Footnote>* & <Endnote>* & <TextVariableInstance>* & <Table>* & <ParagraphStyleRange>* & <CharacterStyleRange>* & <Oval>* & <Rectangle>* & <GraphicLine>* & <TextFrame>* & <Polygon>* & <EndnoteTextFrame>* & <Change>* & <Note>* & <XMLElement>*)`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CellChild {
     /// `<HiddenText>`. Since IDML 6.0.
@@ -680,6 +681,8 @@ pub enum CellChild {
     Change(Box<Change>),
     /// `<Note>`. Since IDML 6.0.
     Note(Box<Note>),
+    /// `<XMLElement>`. Schema amendment: cell-xml: mcneel rhinopython101manual Primer_Python_pre_CS5.idml contains Cell/XMLElement; absent in fresh 21.5.1.73 schema. (applies 6.0..=*)
+    XmlElement(Box<XmlElement>),
 }
 
 impl CellChild {
@@ -702,6 +705,7 @@ impl CellChild {
             Self::EndnoteTextFrame(v) => w.elem("EndnoteTextFrame", |w| v.write(w)),
             Self::Change(v) => w.elem("Change", |w| v.write(w)),
             Self::Note(v) => w.elem("Note", |w| v.write(w)),
+            Self::XmlElement(v) => w.elem("XMLElement", |w| v.write(w)),
         }
     }
 }
@@ -2137,9 +2141,9 @@ pub enum CharacterStyleRangeChild {
     Content(String),
     /// `<Br>`. Since IDML 6.0.
     Br,
-    /// `<Endnote>`. Since IDML > 11.0 <= 15.0.
+    /// `<Endnote>`. Schema amendment: text-endnote: InDesign exports DOMVersion 14.0–21.5 contain Endnote in text (grefel-indesign-endnotes corpus); fresh InDesign 21.5.1.73 schema still excludes it. (applies 14.0..=*)
     Endnote(Box<Endnote>),
-    /// `<TextBox>`. Since IDML 8.0.
+    /// `<TextBox>`. Schema amendment: text-field: InDesign DOMVersion 19.0 export has a TextBox anchored in table-cell text; fresh 21.5.1.73 schema still allows only FormField here. (applies 8.0..=*)
     TextBox(Box<TextBox>),
 }
 
@@ -2723,7 +2727,7 @@ pub struct CrossReferenceSource {
     pub applied_character_style: Option<String>,
     /// `<Properties>`. Since IDML 6.0.
     pub properties: Option<CrossReferenceSourceProperties>,
-    /// `<GaijiOwnedItemObject>`, `<TextVariableInstance>`, `<HyperlinkTextDestination>`, `<Change>`, `<HiddenText>`, `<XMLElement>`, `<XMLInstruction>`, `<XMLComment>`, `<ParagraphStyleRange>`, `<CharacterStyleRange>` in document order
+    /// `<GaijiOwnedItemObject>`, `<TextVariableInstance>`, `<HyperlinkTextDestination>`, `<Change>`, `<HiddenText>`, `<XMLElement>`, `<XMLInstruction>`, `<XMLComment>`, `<ParagraphStyleRange>`, `<CharacterStyleRange>`, `<Content>` in document order
     pub children: Vec<CrossReferenceSourceChild>,
 }
 
@@ -2768,7 +2772,7 @@ impl Content for CrossReferenceSource {
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
-        r.known(&["Properties", "GaijiOwnedItemObject", "TextVariableInstance", "HyperlinkTextDestination", "Change", "HiddenText", "XMLElement", "XMLInstruction", "XMLComment", "ParagraphStyleRange", "CharacterStyleRange"])?;
+        r.known(&["Properties", "GaijiOwnedItemObject", "TextVariableInstance", "HyperlinkTextDestination", "Change", "HiddenText", "XMLElement", "XMLInstruction", "XMLComment", "ParagraphStyleRange", "CharacterStyleRange", "Content"])?;
         Self::read_attributes(r, v)?;
         r.opt_elem_into("Properties", &mut v.properties)?;
         loop {
@@ -2783,6 +2787,7 @@ impl Content for CrossReferenceSource {
                 Some("XMLComment") => v.children.push(CrossReferenceSourceChild::XmlComment(r.boxed("XMLComment")?)),
                 Some("ParagraphStyleRange") => v.children.push(CrossReferenceSourceChild::ParagraphStyleRange(r.boxed("ParagraphStyleRange")?)),
                 Some("CharacterStyleRange") => v.children.push(CrossReferenceSourceChild::CharacterStyleRange(r.boxed("CharacterStyleRange")?)),
+                Some("Content") => v.children.push(CrossReferenceSourceChild::Content(r.elem("Content", |r| r.text())?)),
                 _ => break,
             }
         }
@@ -2797,7 +2802,7 @@ impl Content for CrossReferenceSource {
     }
 }
 
-/// Schema: `CrossReferenceSource_Object/(<GaijiOwnedItemObject>* & <TextVariableInstance>* & <HyperlinkTextDestination>* & <Change>* & <HiddenText>* & <XMLElement>* & <XMLInstruction>* & <XMLComment>* & <ParagraphStyleRange>* & <CharacterStyleRange>*)`.
+/// Schema: `CrossReferenceSource_Object/(<GaijiOwnedItemObject>* & <TextVariableInstance>* & <HyperlinkTextDestination>* & <Change>* & <HiddenText>* & <XMLElement>* & <XMLInstruction>* & <XMLComment>* & <ParagraphStyleRange>* & <CharacterStyleRange>* & <Content>*)`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum CrossReferenceSourceChild {
     /// `<GaijiOwnedItemObject>`. Since IDML 7.0.
@@ -2820,6 +2825,8 @@ pub enum CrossReferenceSourceChild {
     ParagraphStyleRange(Box<ParagraphStyleRange>),
     /// `<CharacterStyleRange>`. Since IDML 7.0.
     CharacterStyleRange(Box<CharacterStyleRange>),
+    /// `<Content>`. Schema amendment: cross-reference-text: Corpus exports DOMVersion 8.1, 12.0 and 21.2 include Content in CrossReferenceSource (including alt.NIME2026-Pictorials-InDesign-template.idml); absent in fresh 21.5.1.73 schema. (applies 6.0..=*)
+    Content(String),
 }
 
 impl CrossReferenceSourceChild {
@@ -2835,6 +2842,7 @@ impl CrossReferenceSourceChild {
             Self::XmlComment(v) => w.elem("XMLComment", |w| v.write(w)),
             Self::ParagraphStyleRange(v) => w.elem("ParagraphStyleRange", |w| v.write(w)),
             Self::CharacterStyleRange(v) => w.elem("CharacterStyleRange", |w| v.write(w)),
+            Self::Content(v) => w.elem("Content", |w| w.text(v)),
         }
     }
 }
@@ -3186,13 +3194,13 @@ impl Content for EndnoteRange {
 /// Schema: `EndnoteRange_Object/(<ParagraphStyleRange>* & <CharacterStyleRange>* & <HyperlinkTextSource>* & <Content>*)`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum EndnoteRangeChild {
-    /// `<ParagraphStyleRange>`. Since IDML > 11.0 <= 15.0.
+    /// `<ParagraphStyleRange>`. Schema amendment: endnote-content: InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content. (applies 14.0..=*)
     ParagraphStyleRange(Box<ParagraphStyleRange>),
-    /// `<CharacterStyleRange>`. Since IDML > 11.0 <= 15.0.
+    /// `<CharacterStyleRange>`. Schema amendment: endnote-content: InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content. (applies 14.0..=*)
     CharacterStyleRange(Box<CharacterStyleRange>),
-    /// `<HyperlinkTextSource>`. Since IDML > 11.0 <= 15.0.
+    /// `<HyperlinkTextSource>`. Schema amendment: endnote-content: InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content. (applies 14.0..=*)
     HyperlinkTextSource(Box<HyperlinkTextSource>),
-    /// `<Content>`. Since IDML > 11.0 <= 15.0.
+    /// `<Content>`. Schema amendment: endnote-content: InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content. (applies 14.0..=*)
     Content(String),
 }
 
@@ -3384,7 +3392,7 @@ impl Content for FootnoteProperties {
 pub struct GaijiOwnedItemObject {
     /// `<Properties>`. Since IDML 6.0.
     pub properties: Option<GaijiOwnedItemObjectProperties>,
-    /// `<Content>`. Since IDML 6.0.
+    /// `<Content>`. Since IDML 6.0. Schema amendment: cross-reference-text: Corpus exports DOMVersion 8.1, 12.0 and 21.2 include Content in CrossReferenceSource (including alt.NIME2026-Pictorials-InDesign-template.idml); absent in fresh 21.5.1.73 schema. (applies 6.0..=*); endnote-content: InDesign exports DOMVersion 14.0–21.5 contain endnote text and ranges in EndnoteRange; fresh 21.5.1.73 schema has no content. (applies 14.0..=*)
     pub content: Vec<String>,
 }
 
@@ -6813,6 +6821,8 @@ pub struct Story {
     pub in_copy_export_option: Option<InCopyExportOption>,
     /// `<HiddenText>`, `<Button>`, `<Endnote>`, `<EndnoteRange>`, `<GaijiOwnedItemObject>`, `<Footnote>`, `<TextVariableInstance>`, `<ParagraphStyleRange>`, `<CharacterStyleRange>`, `<XMLElement>`, `<Table>`, `<ParaStyleMapping>`, `<CharStyleMapping>`, `<TableStyleMapping>`, `<CellStyleMapping>`, `<Link>`, `<Change>`, `<Note>`, `<Content>`, `<Br>` in document order
     pub children: Vec<StoryChild>,
+    /// `<HyperlinkTextSource>`. Schema amendment: story-hyperlink-source: okapi-idml-icml-tests sample_brochure2.idml and sample_magazine.idml contain direct Story/HyperlinkTextSource children. (applies 6.0..=*)
+    pub hyperlink_text_source: Vec<HyperlinkTextSource>,
 }
 
 impl Story {
@@ -7116,6 +7126,7 @@ impl Story {
             metadata_packet_preference: None,
             in_copy_export_option: None,
             children: Vec::new(),
+            hyperlink_text_source: Vec::new(),
         }
     }
 
@@ -7712,11 +7723,11 @@ impl Story {
 
 impl Content for Story {
     fn placeholder() -> Self {
-        Self { self_: String::new(), first_line_indent: None, left_indent: None, right_indent: None, space_before: None, space_after: None, justification: None, single_word_justification: None, auto_leading: None, drop_cap_lines: None, drop_cap_characters: None, keep_lines_together: None, keep_all_lines_together: None, keep_with_next: None, keep_first_lines: None, keep_last_lines: None, start_paragraph: None, composer: None, minimum_word_spacing: None, maximum_word_spacing: None, desired_word_spacing: None, minimum_letter_spacing: None, maximum_letter_spacing: None, desired_letter_spacing: None, minimum_glyph_scaling: None, maximum_glyph_scaling: None, desired_glyph_scaling: None, rule_above: None, rule_above_overprint: None, rule_above_line_weight: None, rule_above_tint: None, rule_above_offset: None, rule_above_left_indent: None, rule_above_right_indent: None, rule_above_width: None, rule_above_gap_tint: None, rule_above_gap_overprint: None, rule_below: None, rule_below_line_weight: None, rule_below_tint: None, rule_below_offset: None, rule_below_left_indent: None, rule_below_right_indent: None, rule_below_width: None, rule_below_gap_tint: None, hyphenate_capitalized_words: None, hyphenation: None, hyphenate_before_last: None, hyphenate_after_first: None, hyphenate_words_longer_than: None, hyphenate_ladder_limit: None, hyphenation_zone: None, hyphen_weight: None, applied_paragraph_style: None, applied_character_style: None, font_style: None, point_size: None, kerning_method: None, tracking: None, capitalization: None, position: None, underline: None, strike_thru: None, ligatures: None, no_break: None, horizontal_scale: None, vertical_scale: None, baseline_shift: None, skew: None, fill_tint: None, stroke_tint: None, stroke_weight: None, overprint_stroke: None, overprint_fill: None, otf_figure_style: None, otf_ordinal: None, otf_fraction: None, otf_discretionary_ligature: None, otf_titling: None, otf_contextual_alternate: None, otf_swash: None, underline_tint: None, underline_gap_tint: None, underline_overprint: None, underline_gap_overprint: None, underline_offset: None, underline_weight: None, strike_through_tint: None, strike_through_gap_tint: None, strike_through_overprint: None, strike_through_gap_overprint: None, strike_through_offset: None, strike_through_weight: None, fill_color: None, stroke_color: None, applied_language: None, keep_with_previous: None, span_column_type: None, split_column_inside_gutter: None, split_column_outside_gutter: None, span_column_min_space_before: None, span_column_min_space_after: None, paragraph_shading_left_offset: None, paragraph_shading_right_offset: None, paragraph_shading_top_offset: None, paragraph_shading_bottom_offset: None, paragraph_shading_width: None, paragraph_shading_top_origin: None, paragraph_shading_bottom_origin: None, paragraph_shading_clip_to_frame: None, paragraph_shading_suppress_printing: None, paragraph_shading_on: None, paragraph_shading_overprint: None, paragraph_shading_tint: None, user_text: None, is_endnote_story: None, paragraph_border_on: None, paragraph_border_overprint: None, paragraph_border_tint: None, paragraph_border_gap_overprint: None, paragraph_border_gap_tint: None, paragraph_border_left_line_weight: None, paragraph_border_top_line_weight: None, paragraph_border_right_line_weight: None, paragraph_border_bottom_line_weight: None, paragraph_border_stroke_end_cap: None, paragraph_border_stroke_end_join: None, paragraph_shading_top_left_corner_radius: None, paragraph_shading_top_left_corner_option: None, paragraph_shading_top_right_corner_radius: None, paragraph_shading_top_right_corner_option: None, paragraph_shading_bottom_left_corner_radius: None, paragraph_shading_bottom_left_corner_option: None, paragraph_shading_bottom_right_corner_radius: None, paragraph_shading_bottom_right_corner_option: None, paragraph_border_top_left_corner_radius: None, paragraph_border_top_left_corner_option: None, paragraph_border_top_right_corner_radius: None, paragraph_border_top_right_corner_option: None, paragraph_border_bottom_left_corner_radius: None, paragraph_border_bottom_left_corner_option: None, paragraph_border_bottom_right_corner_radius: None, paragraph_border_bottom_right_corner_option: None, paragraph_border_width: None, paragraph_border_top_origin: None, paragraph_border_bottom_origin: None, paragraph_border_left_offset: None, paragraph_border_right_offset: None, paragraph_border_top_offset: None, paragraph_border_bottom_offset: None, paragraph_border_display_if_splits: None, provider_hyphenation_style: None, merge_consecutive_para_borders: None, paragraph_kashida_width: None, last_line_indent: None, hyphenate_last_word: None, otf_slashed_zero: None, otf_historical: None, otf_stylistic_sets: None, gradient_fill_length: None, gradient_fill_angle: None, gradient_stroke_length: None, gradient_stroke_angle: None, gradient_fill_start: None, gradient_stroke_start: None, rule_below_overprint: None, rule_below_gap_overprint: None, dropcap_detail: None, hyphenate_across_columns: None, keep_rule_above_in_frame: None, ignore_edge_alignment: None, otf_mark: None, otf_locale: None, positional_form: None, paragraph_direction: None, paragraph_justification: None, miter_limit: None, stroke_alignment: None, end_join: None, otf_overlap_swash: None, otf_stylistic_alternate: None, otf_justification_alternate: None, otf_stretched_alternate: None, character_direction: None, keyboard_direction: None, digits_type: None, kashidas: None, diacritic_position: None, x_offset_diacritic: None, y_offset_diacritic: None, paragraph_break_type: None, page_number_type: None, character_alignment: None, tsume: None, leading_aki: None, trailing_aki: None, character_rotation: None, jidori: None, shatai_magnification: None, shatai_degree_angle: None, shatai_adjust_rotation: None, shatai_adjust_tsume: None, tatechuyoko: None, tatechuyoko_x_offset: None, tatechuyoko_y_offset: None, kenten_tint: None, kenten_stroke_tint: None, kenten_weight: None, kenten_overprint_fill: None, kenten_overprint_stroke: None, kenten_kind: None, kenten_placement: None, kenten_alignment: None, kenten_position: None, kenten_font_size: None, kenten_x_scale: None, kenten_y_scale: None, kenten_custom_character: None, kenten_character_set: None, ruby_tint: None, ruby_weight: None, ruby_overprint_fill: None, ruby_overprint_stroke: None, ruby_stroke_tint: None, ruby_font_size: None, ruby_open_type_pro: None, ruby_x_scale: None, ruby_y_scale: None, ruby_type: None, ruby_alignment: None, ruby_position: None, ruby_x_offset: None, ruby_y_offset: None, ruby_parent_spacing: None, ruby_auto_align: None, ruby_overhang: None, ruby_auto_scaling: None, ruby_parent_scaling_percent: None, ruby_parent_overhang_amount: None, warichu: None, warichu_size: None, warichu_lines: None, warichu_line_spacing: None, warichu_alignment: None, warichu_chars_after_break: None, warichu_chars_before_break: None, otf_proportional_metrics: None, otfhv_kana: None, otf_roman_italics: None, scale_affects_line_height: None, cjk_grid_tracking: None, glyph_form: None, ruby_flag: None, ruby_string: None, grid_align_first_line_only: None, grid_alignment: None, grid_gyoudori: None, auto_tcy: None, auto_tcy_include_roman: None, kinsoku_type: None, kinsoku_hang_type: None, bunri_kinshi: None, rensuuji: None, rotate_single_byte_characters: None, leading_model: None, ruby_auto_tcy_digits: None, ruby_auto_tcy_include_roman: None, ruby_auto_tcy_auto_scale: None, treat_ideographic_space_as_space: None, allow_arbitrary_hyphenation: None, paragraph_gyoudori: None, link_resource_id: None, applied_toc_style: None, bullets_and_numbering_list_type: None, numbering_expression: None, bullets_text_after: None, numbering_level: None, numbering_continue: None, numbering_start_at: None, numbering_apply_restart_policy: None, bullets_alignment: None, numbering_alignment: None, track_changes: None, story_title: None, applied_named_grid: None, ai_generated_story: None, ai_model_name: None, ai_digital_source_type: None, ai_first_party: None, ai_text_content: None, properties: None, story_preference: None, grid_data_information: None, linked_story_option: None, metadata_packet_preference: None, in_copy_export_option: None, children: Vec::new() }
+        Self { self_: String::new(), first_line_indent: None, left_indent: None, right_indent: None, space_before: None, space_after: None, justification: None, single_word_justification: None, auto_leading: None, drop_cap_lines: None, drop_cap_characters: None, keep_lines_together: None, keep_all_lines_together: None, keep_with_next: None, keep_first_lines: None, keep_last_lines: None, start_paragraph: None, composer: None, minimum_word_spacing: None, maximum_word_spacing: None, desired_word_spacing: None, minimum_letter_spacing: None, maximum_letter_spacing: None, desired_letter_spacing: None, minimum_glyph_scaling: None, maximum_glyph_scaling: None, desired_glyph_scaling: None, rule_above: None, rule_above_overprint: None, rule_above_line_weight: None, rule_above_tint: None, rule_above_offset: None, rule_above_left_indent: None, rule_above_right_indent: None, rule_above_width: None, rule_above_gap_tint: None, rule_above_gap_overprint: None, rule_below: None, rule_below_line_weight: None, rule_below_tint: None, rule_below_offset: None, rule_below_left_indent: None, rule_below_right_indent: None, rule_below_width: None, rule_below_gap_tint: None, hyphenate_capitalized_words: None, hyphenation: None, hyphenate_before_last: None, hyphenate_after_first: None, hyphenate_words_longer_than: None, hyphenate_ladder_limit: None, hyphenation_zone: None, hyphen_weight: None, applied_paragraph_style: None, applied_character_style: None, font_style: None, point_size: None, kerning_method: None, tracking: None, capitalization: None, position: None, underline: None, strike_thru: None, ligatures: None, no_break: None, horizontal_scale: None, vertical_scale: None, baseline_shift: None, skew: None, fill_tint: None, stroke_tint: None, stroke_weight: None, overprint_stroke: None, overprint_fill: None, otf_figure_style: None, otf_ordinal: None, otf_fraction: None, otf_discretionary_ligature: None, otf_titling: None, otf_contextual_alternate: None, otf_swash: None, underline_tint: None, underline_gap_tint: None, underline_overprint: None, underline_gap_overprint: None, underline_offset: None, underline_weight: None, strike_through_tint: None, strike_through_gap_tint: None, strike_through_overprint: None, strike_through_gap_overprint: None, strike_through_offset: None, strike_through_weight: None, fill_color: None, stroke_color: None, applied_language: None, keep_with_previous: None, span_column_type: None, split_column_inside_gutter: None, split_column_outside_gutter: None, span_column_min_space_before: None, span_column_min_space_after: None, paragraph_shading_left_offset: None, paragraph_shading_right_offset: None, paragraph_shading_top_offset: None, paragraph_shading_bottom_offset: None, paragraph_shading_width: None, paragraph_shading_top_origin: None, paragraph_shading_bottom_origin: None, paragraph_shading_clip_to_frame: None, paragraph_shading_suppress_printing: None, paragraph_shading_on: None, paragraph_shading_overprint: None, paragraph_shading_tint: None, user_text: None, is_endnote_story: None, paragraph_border_on: None, paragraph_border_overprint: None, paragraph_border_tint: None, paragraph_border_gap_overprint: None, paragraph_border_gap_tint: None, paragraph_border_left_line_weight: None, paragraph_border_top_line_weight: None, paragraph_border_right_line_weight: None, paragraph_border_bottom_line_weight: None, paragraph_border_stroke_end_cap: None, paragraph_border_stroke_end_join: None, paragraph_shading_top_left_corner_radius: None, paragraph_shading_top_left_corner_option: None, paragraph_shading_top_right_corner_radius: None, paragraph_shading_top_right_corner_option: None, paragraph_shading_bottom_left_corner_radius: None, paragraph_shading_bottom_left_corner_option: None, paragraph_shading_bottom_right_corner_radius: None, paragraph_shading_bottom_right_corner_option: None, paragraph_border_top_left_corner_radius: None, paragraph_border_top_left_corner_option: None, paragraph_border_top_right_corner_radius: None, paragraph_border_top_right_corner_option: None, paragraph_border_bottom_left_corner_radius: None, paragraph_border_bottom_left_corner_option: None, paragraph_border_bottom_right_corner_radius: None, paragraph_border_bottom_right_corner_option: None, paragraph_border_width: None, paragraph_border_top_origin: None, paragraph_border_bottom_origin: None, paragraph_border_left_offset: None, paragraph_border_right_offset: None, paragraph_border_top_offset: None, paragraph_border_bottom_offset: None, paragraph_border_display_if_splits: None, provider_hyphenation_style: None, merge_consecutive_para_borders: None, paragraph_kashida_width: None, last_line_indent: None, hyphenate_last_word: None, otf_slashed_zero: None, otf_historical: None, otf_stylistic_sets: None, gradient_fill_length: None, gradient_fill_angle: None, gradient_stroke_length: None, gradient_stroke_angle: None, gradient_fill_start: None, gradient_stroke_start: None, rule_below_overprint: None, rule_below_gap_overprint: None, dropcap_detail: None, hyphenate_across_columns: None, keep_rule_above_in_frame: None, ignore_edge_alignment: None, otf_mark: None, otf_locale: None, positional_form: None, paragraph_direction: None, paragraph_justification: None, miter_limit: None, stroke_alignment: None, end_join: None, otf_overlap_swash: None, otf_stylistic_alternate: None, otf_justification_alternate: None, otf_stretched_alternate: None, character_direction: None, keyboard_direction: None, digits_type: None, kashidas: None, diacritic_position: None, x_offset_diacritic: None, y_offset_diacritic: None, paragraph_break_type: None, page_number_type: None, character_alignment: None, tsume: None, leading_aki: None, trailing_aki: None, character_rotation: None, jidori: None, shatai_magnification: None, shatai_degree_angle: None, shatai_adjust_rotation: None, shatai_adjust_tsume: None, tatechuyoko: None, tatechuyoko_x_offset: None, tatechuyoko_y_offset: None, kenten_tint: None, kenten_stroke_tint: None, kenten_weight: None, kenten_overprint_fill: None, kenten_overprint_stroke: None, kenten_kind: None, kenten_placement: None, kenten_alignment: None, kenten_position: None, kenten_font_size: None, kenten_x_scale: None, kenten_y_scale: None, kenten_custom_character: None, kenten_character_set: None, ruby_tint: None, ruby_weight: None, ruby_overprint_fill: None, ruby_overprint_stroke: None, ruby_stroke_tint: None, ruby_font_size: None, ruby_open_type_pro: None, ruby_x_scale: None, ruby_y_scale: None, ruby_type: None, ruby_alignment: None, ruby_position: None, ruby_x_offset: None, ruby_y_offset: None, ruby_parent_spacing: None, ruby_auto_align: None, ruby_overhang: None, ruby_auto_scaling: None, ruby_parent_scaling_percent: None, ruby_parent_overhang_amount: None, warichu: None, warichu_size: None, warichu_lines: None, warichu_line_spacing: None, warichu_alignment: None, warichu_chars_after_break: None, warichu_chars_before_break: None, otf_proportional_metrics: None, otfhv_kana: None, otf_roman_italics: None, scale_affects_line_height: None, cjk_grid_tracking: None, glyph_form: None, ruby_flag: None, ruby_string: None, grid_align_first_line_only: None, grid_alignment: None, grid_gyoudori: None, auto_tcy: None, auto_tcy_include_roman: None, kinsoku_type: None, kinsoku_hang_type: None, bunri_kinshi: None, rensuuji: None, rotate_single_byte_characters: None, leading_model: None, ruby_auto_tcy_digits: None, ruby_auto_tcy_include_roman: None, ruby_auto_tcy_auto_scale: None, treat_ideographic_space_as_space: None, allow_arbitrary_hyphenation: None, paragraph_gyoudori: None, link_resource_id: None, applied_toc_style: None, bullets_and_numbering_list_type: None, numbering_expression: None, bullets_text_after: None, numbering_level: None, numbering_continue: None, numbering_start_at: None, numbering_apply_restart_policy: None, bullets_alignment: None, numbering_alignment: None, track_changes: None, story_title: None, applied_named_grid: None, ai_generated_story: None, ai_model_name: None, ai_digital_source_type: None, ai_first_party: None, ai_text_content: None, properties: None, story_preference: None, grid_data_information: None, linked_story_option: None, metadata_packet_preference: None, in_copy_export_option: None, children: Vec::new(), hyperlink_text_source: Vec::new() }
     }
 
     fn read_into(r: &mut Reader<'_, '_, '_>, v: &mut Self) -> Result<(), Error> {
-        r.known(&["Properties", "StoryPreference", "GridDataInformation", "LinkedStoryOption", "MetadataPacketPreference", "InCopyExportOption", "HiddenText", "Button", "Endnote", "EndnoteRange", "GaijiOwnedItemObject", "Footnote", "TextVariableInstance", "ParagraphStyleRange", "CharacterStyleRange", "XMLElement", "Table", "ParaStyleMapping", "CharStyleMapping", "TableStyleMapping", "CellStyleMapping", "Link", "Change", "Note", "Content", "Br"])?;
+        r.known(&["Properties", "StoryPreference", "GridDataInformation", "LinkedStoryOption", "MetadataPacketPreference", "InCopyExportOption", "HiddenText", "Button", "Endnote", "EndnoteRange", "GaijiOwnedItemObject", "Footnote", "TextVariableInstance", "ParagraphStyleRange", "CharacterStyleRange", "XMLElement", "Table", "ParaStyleMapping", "CharStyleMapping", "TableStyleMapping", "CellStyleMapping", "Link", "Change", "Note", "Content", "Br", "HyperlinkTextSource"])?;
         Self::read_attributes(r, v)?;
         r.opt_elem_into("Properties", &mut v.properties)?;
         r.opt_elem_into("StoryPreference", &mut v.story_preference)?;
@@ -7754,6 +7765,7 @@ impl Content for Story {
                 _ => break,
             }
         }
+        r.elems_into("HyperlinkTextSource", &mut v.hyperlink_text_source)?;
         Ok(())
     }
 
@@ -7766,6 +7778,7 @@ impl Content for Story {
         if let Some(v) = &self.metadata_packet_preference { w.elem("MetadataPacketPreference", |w| v.write(w))?; }
         if let Some(v) = &self.in_copy_export_option { w.elem("InCopyExportOption", |w| v.write(w))?; }
         for v in &self.children { v.write(w)?; }
+        for v in &self.hyperlink_text_source { w.elem("HyperlinkTextSource", |w| v.write(w))?; }
         Ok(())
     }
 }

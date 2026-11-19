@@ -8,10 +8,17 @@
 
 use std::fmt::Write as _;
 
-use super::{PACKAGING_NS, Root, needs_ace};
+#[cfg(any(feature = "owned", test))]
+use super::PACKAGING_NS;
+#[cfg(feature = "owned")]
+use super::Root;
+use super::needs_ace;
 use crate::element::Element;
 use crate::error::{Error, ErrorKind, Location};
-use crate::layout::{ElementLayout, Layout, PartLayout};
+use crate::layout::ElementLayout;
+#[cfg(feature = "owned")]
+use crate::layout::{Layout, PartLayout};
+#[cfg(feature = "owned")]
 use crate::value::Value;
 
 /// Guards the stack against absurdly deep models.
@@ -21,6 +28,7 @@ const MAX_DEPTH: usize = 512;
 pub(crate) const DECLARATION: &str = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n";
 
 /// Elements whose text InDesign writes as CDATA sections.
+#[cfg(feature = "owned")]
 const CDATA: &[&str] = &[
     "Contents",
     "EPSTextData",
@@ -34,6 +42,7 @@ const CDATA: &[&str] = &[
 /// The longest CDATA section InDesign writes, in bytes.
 const CDATA_SECTION: usize = 262_144;
 
+#[cfg(feature = "owned")]
 pub(crate) struct Writer<'l> {
     part: String,
     layout: &'l Layout,
@@ -44,6 +53,7 @@ pub(crate) struct Writer<'l> {
 }
 
 /// An element as generated code writes it: its names are the schema's.
+#[cfg(feature = "owned")]
 #[derive(Default)]
 struct Node {
     name: &'static str,
@@ -84,6 +94,7 @@ impl Tree for Element {
     }
 }
 
+#[cfg(feature = "owned")]
 impl Tree for Node {
     fn name(&self) -> &str {
         self.name
@@ -107,11 +118,13 @@ impl Tree for Node {
 }
 
 /// A serialized part and the parts it references.
+#[cfg(feature = "owned")]
 pub(crate) struct Written {
     pub xml: String,
     pub parts: Vec<(String, String)>,
 }
 
+#[cfg(feature = "owned")]
 impl<'l> Writer<'l> {
     /// Writes the part `part` as a complete XML document with root element
     /// `root`, preceded by the processing instruction `pi` if given.
@@ -149,7 +162,7 @@ impl<'l> Writer<'l> {
 
     fn error(&self, message: String) -> Error {
         let element = self.stack.iter().map(|e| e.name).collect::<Vec<_>>().join("/");
-        Error::new(ErrorKind::Package, message).at(Location { part: self.part.clone(), element, ..Location::default() })
+        Error::new(ErrorKind::Write, message).at(Location { part: self.part.clone(), element, ..Location::default() })
     }
 
     pub fn elem(&mut self, name: &'static str, f: impl FnOnce(&mut Writer<'l>) -> Result<(), Error>) -> Result<(), Error> {
@@ -195,14 +208,9 @@ impl<'l> Writer<'l> {
         }
     }
 
-    /// An attribute with a literal value. `DOMVersion` is written as the
-    /// layout says.
+    /// A literal attribute of the configured owned projection's schema.
     pub fn fixed(&mut self, name: &'static str, value: &str) -> Result<(), Error> {
-        let value = match (name, &self.layout.dom_version) {
-            ("DOMVersion", Some(v)) => v.clone(),
-            _ => value.to_owned(),
-        };
-        self.put_attr(name, value)
+        self.put_attr(name, value.to_owned())
     }
 
     pub fn text<V: Value>(&mut self, value: &V) -> Result<(), Error> {
@@ -258,7 +266,7 @@ fn write_element<'e, T: Tree>(
     let name = e.name();
     path.push(name);
     let error =
-        |path: &[&str], message: String| Error::new(ErrorKind::Package, message).at(Location { element: path.join("/"), ..Location::default() });
+        |path: &[&str], message: String| Error::new(ErrorKind::Write, message).at(Location { element: path.join("/"), ..Location::default() });
     out.push('<');
     out.push_str(name);
     let mut attributes: Vec<(&str, &str)> = extra.iter().copied().chain(e.attributes()).collect();

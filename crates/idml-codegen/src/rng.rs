@@ -8,6 +8,80 @@ use crate::rnc::{Define, File, Ids, Kind, NameClass, Pattern, QName, XSD};
 
 const RNG: &str = "http://relaxng.org/ns/structure/1.0";
 
+/// Export a standalone grammar for an independent validator such as Jing.
+/// This serializes the schema AST, without going through the Rust model.
+pub fn write(schema: &crate::schema::Schema, entry: &crate::schema::Entry) -> Result<String, String> {
+    use std::fmt::Write as _;
+    fn escape(s: &str) -> String {
+        s.replace('&', "&amp;").replace('<', "&lt;").replace('"', "&quot;")
+    }
+    fn pattern(p: &Pattern, out: &mut String) {
+        match &p.kind {
+            Kind::Element(n, c) | Kind::Attribute(n, c) => {
+                let tag = if matches!(p.kind, Kind::Element(..)) { "element" } else { "attribute" };
+                let _ = write!(out, "<{tag}>");
+                match n {
+                    NameClass::Name(q) => {
+                        let _ = write!(out, "<name ns=\"{}\">{}</name>", escape(&q.ns), escape(&q.local));
+                    }
+                    NameClass::Any => out.push_str("<anyName/>"),
+                }
+                pattern(c, out);
+                let _ = write!(out, "</{tag}>");
+            }
+            Kind::Group(ps) | Kind::Interleave(ps) | Kind::Choice(ps) => {
+                let tag = match p.kind {
+                    Kind::Group(_) => "group",
+                    Kind::Interleave(_) => "interleave",
+                    _ => "choice",
+                };
+                let _ = write!(out, "<{tag}>");
+                for p in ps {
+                    pattern(p, out);
+                }
+                let _ = write!(out, "</{tag}>");
+            }
+            Kind::Optional(c) | Kind::ZeroOrMore(c) | Kind::OneOrMore(c) | Kind::List(c) => {
+                let tag = match p.kind {
+                    Kind::Optional(_) => "optional",
+                    Kind::ZeroOrMore(_) => "zeroOrMore",
+                    Kind::OneOrMore(_) => "oneOrMore",
+                    _ => "list",
+                };
+                let _ = write!(out, "<{tag}>");
+                pattern(c, out);
+                let _ = write!(out, "</{tag}>");
+            }
+            Kind::Ref(n) => {
+                let _ = write!(out, "<ref name=\"{}\"/>", escape(n));
+            }
+            Kind::Text => out.push_str("<text/>"),
+            Kind::Empty => out.push_str("<empty/>"),
+            Kind::NotAllowed => out.push_str("<notAllowed/>"),
+            Kind::Value { token, value } => {
+                let ty = if *token { "token" } else { "string" };
+                let _ = write!(out, "<value type=\"{ty}\">{}</value>", escape(value));
+            }
+            Kind::Data { xsd, params } => {
+                let _ = write!(out, "<data type=\"{}\" datatypeLibrary=\"{XSD}\">", escape(xsd));
+                for (k, v) in params {
+                    let _ = write!(out, "<param name=\"{}\">{}</param>", escape(k), escape(v));
+                }
+                out.push_str("</data>");
+            }
+        }
+    }
+    let mut out =
+        format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<grammar xmlns=\"{RNG}\"><start><ref name=\"{}\"/></start>\n", escape(&entry.start));
+    for name in schema.reachable_from(entry) {
+        let _ = write!(out, "<define name=\"{}\">", escape(&name));
+        pattern(&schema.def(&name)?.pattern, &mut out);
+        out.push_str("</define>\n");
+    }
+    out.push_str("</grammar>\n");
+    Ok(out)
+}
+
 pub fn parse(text: &str, ids: &mut Ids) -> Result<File, String> {
     let doc = Document::parse(text).map_err(|e| e.to_string())?;
     let root = doc.root_element();
@@ -130,6 +204,7 @@ fn datatype_library<'a>(node: Node<'a, '_>) -> &'a str {
 }
 
 fn name_class(node: Node, attribute: bool) -> Result<NameClass, String> {
+    let explicit_name = elements(node).find(|n| is(*n, "name"));
     let name = match node.attribute("name") {
         Some(name) => name,
         None => match elements(node).next() {
@@ -145,9 +220,11 @@ fn name_class(node: Node, attribute: bool) -> Result<NameClass, String> {
             QName { ns: ns.to_owned(), prefix: Some(prefix.to_owned()), local: local.to_owned() }
         }
         // Unprefixed attributes have no namespace; elements take `ns`.
-        None if attribute => QName { ns: String::new(), prefix: None, local: name.to_owned() },
+        None if attribute => {
+            QName { ns: explicit_name.and_then(|n| n.attribute("ns")).unwrap_or("").to_owned(), prefix: None, local: name.to_owned() }
+        }
         None => {
-            let ns = node.ancestors().find_map(|n| n.attribute("ns")).unwrap_or("");
+            let ns = explicit_name.and_then(|n| n.attribute("ns")).or_else(|| node.ancestors().find_map(|n| n.attribute("ns"))).unwrap_or("");
             QName { ns: ns.to_owned(), prefix: None, local: name.to_owned() }
         }
     }))

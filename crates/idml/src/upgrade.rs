@@ -1,10 +1,11 @@
 //! Reading documents of older `DOMVersion`s.
 //!
 //! A part whose root has an older `DOMVersion` is edited into a part of the
-//! current version before it is read: the edits are generated from
+//! current version for the typed projection before it is read: the edits are generated from
 //! `schema-upgrades.tsv` ([`crate::model::upgrades`]), which has a rule for
 //! every schema item older versions have and the current one has not, or
-//! has differently. Edits that lose data are reported as warnings. The
+//! has differently. Omitted data is reported as warnings; Package and XmlPart
+//! retain the unmodified source for writing. The
 //! edits keep line numbers, so locations in errors still point into the
 //! original part.
 

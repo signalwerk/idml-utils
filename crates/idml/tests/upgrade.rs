@@ -1,3 +1,4 @@
+#![cfg(feature = "owned")]
 //! Documents of older IDML versions are read into the current model.
 //!
 //! For every older snapshot in `schemas/`, documents generated from its
@@ -15,7 +16,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use common::{CONTAINER, part, zip};
-use idml::Package;
+use idml::OwnedPackage;
 use idml_codegen::instance::{Generator, Lexical, Style};
 use idml_codegen::rnc::{Kind, NameClass, Pattern};
 use idml_codegen::schema::{Def, Schema};
@@ -105,7 +106,7 @@ fn older_packages_are_read() {
             files.push((reference.attribute("src").unwrap().to_owned(), parts.document(&schema.entries[0]).unwrap()));
         }
         files.push(("designmap.xml".to_owned(), xml));
-        let package = Package::read(&zip(&files), &idml::ReadOptions::default()).unwrap_or_else(|e| panic!("{version} package: {e}"));
+        let package = OwnedPackage::read(&zip(&files), &idml::ReadOptions::default()).unwrap_or_else(|e| panic!("{version} package: {e}"));
         if let Err(e) = package.value.write() {
             panic!("{version} package: writing: {e}");
         }
@@ -134,6 +135,7 @@ fn with_root_of(older: &Schema, part: &Schema, dom: &str) -> Schema {
         defs.insert(name, def);
     }
     let mut schema = Schema {
+        amendment_nodes: Default::default(),
         dir: Path::new(&part.dir).to_owned(),
         indesign_version: older.indesign_version.clone(),
         sha256: String::new(),

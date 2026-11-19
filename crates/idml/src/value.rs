@@ -526,6 +526,7 @@ macro_rules! value_enum {
 
 /// Declares a number type restricted to an inclusive range
 /// (`minInclusive`/`maxInclusive` facets).
+#[cfg(feature = "owned")]
 macro_rules! ranged {
     ($(#[$meta:meta])* $name:ident: $t:ty = $min:literal ..= $max:literal $(, $derive:ident)*) => {
         $(#[$meta])*
@@ -584,6 +585,7 @@ macro_rules! ranged {
 }
 
 /// Declares a value that is one of several enumerations.
+#[cfg(feature = "owned")]
 macro_rules! value_union {
     ($(#[$meta:meta])* $name:ident { $($variant:ident,)* }) => {
         $(#[$meta])*
@@ -619,7 +621,9 @@ macro_rules! value_union {
     };
 }
 
-pub(crate) use {ranged, value_enum, value_union};
+pub(crate) use value_enum;
+#[cfg(feature = "owned")]
+pub(crate) use {ranged, value_union};
 
 #[cfg(test)]
 mod tests {

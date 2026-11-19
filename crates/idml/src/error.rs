@@ -41,9 +41,11 @@ pub enum ErrorKind {
     /// The XML does not match the IDML schema.
     Schema,
     /// The package structure is wrong: missing or duplicate parts, an
-    /// invalid mimetype, a text that XML cannot represent.
+    /// invalid mimetype.
     Package,
-    /// A size or nesting limit from `ReadOptions` was exceeded.
+    /// Serialization failed, or an edit cannot safely be applied to source XML.
+    Write,
+    /// A parsing, package-size or schema-validation work limit was exceeded.
     Limit,
 }
 
@@ -61,7 +63,7 @@ struct Inner {
 }
 
 impl Error {
-    pub(crate) fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
+    pub fn new(kind: ErrorKind, message: impl Into<String>) -> Self {
         Error(Box::new(Inner { kind, message: message.into(), location: None }))
     }
 
@@ -106,7 +108,8 @@ impl From<std::io::Error> for Error {
     }
 }
 
-/// Something a lenient read skipped or a read noticed without failing.
+/// A projection omitted data, or a read noticed something without failing.
+/// `Package` and `XmlPart` keep the omitted data in their original source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Warning {
     pub message: String,

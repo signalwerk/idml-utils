@@ -8,11 +8,13 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
-use roxmltree::{Document, Node, NodeType};
+use roxmltree::{Document, NodeType};
 
-use super::{Content, PACKAGING_NS, Root};
+use super::input::InputNode;
+use super::{Content, Root, nesting_exceeds};
 use crate::error::{Error, ErrorKind, Location, Warning};
 use crate::layout::PartLayout;
+use crate::tree::XmlTree;
 use crate::value::{PartPath, Value};
 use crate::{Mode, Part, ReadOptions};
 
@@ -26,6 +28,7 @@ pub(crate) struct Ctx {
     suppressed: usize,
     /// The package's files, for designmap part references.
     pub files: BTreeMap<String, Vec<u8>>,
+    pub element_parts: BTreeMap<String, XmlTree>,
     /// The files read so far.
     pub used: BTreeSet<String>,
     /// The part being read, for locations.
@@ -34,6 +37,8 @@ pub(crate) struct Ctx {
     pub layouts: BTreeMap<String, PartLayout>,
     /// The parts that were upgraded from an older `DOMVersion`.
     pub upgraded: BTreeSet<String>,
+    pub sources: BTreeMap<String, String>,
+    pub capture_source: bool,
     /// How many choices are trying alternatives. Their errors only give
     /// their message, so they are not located.
     trial: usize,
@@ -45,14 +50,17 @@ pub(crate) struct Ctx {
 impl Ctx {
     pub fn new(options: &ReadOptions, part: &str) -> Self {
         Ctx {
-            options: options.clone(),
+            options: ReadOptions { max_depth: options.max_depth.min(48), ..options.clone() },
             warnings: Vec::new(),
             suppressed: 0,
             files: BTreeMap::new(),
+            element_parts: BTreeMap::new(),
             used: BTreeSet::new(),
             part: part.to_owned(),
             layouts: BTreeMap::new(),
             upgraded: BTreeSet::new(),
+            sources: BTreeMap::new(),
+            capture_source: true,
             trial: 0,
             lines: std::cell::RefCell::new(None),
         }
@@ -105,6 +113,16 @@ impl Ctx {
 pub(crate) fn read_part<T: Content>(ctx: &mut Ctx, xml: &str, root: &str) -> Result<T, Error> {
     let part = ctx.part.clone();
     let location = || Location { part: part.clone(), ..Location::default() };
+    if xml.len() as u64 > ctx.options.max_size {
+        return Err(Error::new(ErrorKind::Limit, "XML exceeds max_size").at(location()));
+    }
+    if xml.len() as u64 > ctx.options.max_entry_size {
+        return Err(Error::new(ErrorKind::Limit, "XML exceeds max_entry_size").at(location()));
+    }
+    crate::tree::check_xml_counts(xml, &ctx.options).map_err(|e| e.at(location()))?;
+    if ctx.capture_source {
+        ctx.sources.insert(part.clone(), xml.to_owned());
+    }
     let xml = xml.strip_prefix('\u{feff}').unwrap_or(xml);
     if nesting_exceeds(xml, ctx.options.max_depth) {
         let message = format!("elements nested deeper than {}", ctx.options.max_depth);
@@ -113,6 +131,13 @@ pub(crate) fn read_part<T: Content>(ctx: &mut Ctx, xml: &str, root: &str) -> Res
     let doc = Document::parse(xml).map_err(|e| Error::new(ErrorKind::Xml, e.to_string()).at(location()))?;
     match crate::upgrade::upgrade(ctx, &doc, xml) {
         Some(upgraded) => {
+            if upgraded.len() as u64 > ctx.options.max_size {
+                return Err(Error::new(ErrorKind::Limit, "upgraded XML exceeds max_size").at(location()));
+            }
+            if upgraded.len() as u64 > ctx.options.max_entry_size {
+                return Err(Error::new(ErrorKind::Limit, "upgraded XML exceeds max_entry_size").at(location()));
+            }
+            crate::tree::check_xml_counts(&upgraded, &ctx.options).map_err(|e| e.at(location()))?;
             let error = |e: roxmltree::Error| Error::new(ErrorKind::Xml, format!("upgraded from an older DOMVersion: {e}")).at(location());
             let doc = Document::parse(&upgraded).map_err(error)?;
             let value = read_root(ctx, &doc, root)?;
@@ -129,7 +154,7 @@ pub(crate) fn read_part<T: Content>(ctx: &mut Ctx, xml: &str, root: &str) -> Res
 }
 
 fn read_root<T: Content>(ctx: &mut Ctx, doc: &Document, root: &str) -> Result<T, Error> {
-    let mut r = Reader::new(ctx, doc, doc.root_element());
+    let mut r = Reader::new(ctx, Some(doc), InputNode::Xml(doc.root_element()));
     if r.name(r.node) != root {
         return Err(r.error(format!("expected root element <{root}>, found <{}>", r.name(r.node))));
     }
@@ -138,12 +163,24 @@ fn read_root<T: Content>(ctx: &mut Ctx, doc: &Document, root: &str) -> Result<T,
     Ok(value)
 }
 
+pub(crate) fn read_element_part<T: Content>(ctx: &mut Ctx, tree: &XmlTree, root: &str) -> Result<T, Error> {
+    tree.check_limits(&ctx.options)?;
+    let mut reader = Reader::new(ctx, None, InputNode::Tree(tree, tree.root()));
+    if reader.name(reader.node) != root {
+        return Err(reader.error(format!("expected root element <{root}>, found <{}>", reader.name(reader.node))));
+    }
+    let value = T::read(&mut reader)?;
+    reader.finish()?;
+    ctx.layouts.insert(ctx.part.clone(), crate::layout::PartLayout::from_tree(tree));
+    Ok(value)
+}
+
 pub(crate) struct Reader<'c, 'a, 'i> {
     ctx: &'c mut Ctx,
-    doc: &'a Document<'i>,
-    node: Node<'a, 'i>,
+    doc: Option<&'a Document<'i>>,
+    node: InputNode<'a, 'i>,
     used: Vec<bool>,
-    kids: Vec<(Node<'a, 'i>, Cow<'a, str>)>,
+    kids: Vec<(InputNode<'a, 'i>, Cow<'a, str>)>,
     next: usize,
     text_read: bool,
 }
@@ -154,7 +191,7 @@ pub(crate) type Alternative<'a, 'i, T> = fn(&mut Reader<'_, 'a, 'i>) -> Result<T
 /// Where a reader is, so a choice can try an alternative and go back.
 struct Mark<'a, 'i> {
     used: Vec<bool>,
-    kids: Vec<(Node<'a, 'i>, Cow<'a, str>)>,
+    kids: Vec<(InputNode<'a, 'i>, Cow<'a, str>)>,
     next: usize,
     text_read: bool,
     /// Warnings kept and suppressed.
@@ -162,23 +199,28 @@ struct Mark<'a, 'i> {
 }
 
 impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
-    fn new(ctx: &'c mut Ctx, doc: &'a Document<'i>, node: Node<'a, 'i>) -> Self {
-        let kids = node.children().filter(Node::is_element).map(|n| (n, qualified(n))).collect();
-        Reader { ctx, doc, node, used: vec![false; node.attributes().len()], kids, next: 0, text_read: false }
+    fn new(ctx: &'c mut Ctx, doc: Option<&'a Document<'i>>, node: InputNode<'a, 'i>) -> Self {
+        let kids = node.children().filter(InputNode::is_element).map(|n| (n, n.qualified())).collect();
+        Reader { ctx, doc, node, used: vec![false; node.attributes().count()], kids, next: 0, text_read: false }
     }
 
-    fn name(&self, node: Node<'a, 'i>) -> Cow<'a, str> {
-        qualified(node)
+    fn name(&self, node: InputNode<'a, 'i>) -> Cow<'a, str> {
+        node.qualified()
     }
 
-    fn location(&self, node: Node<'a, 'i>) -> Location {
-        let (line, column) = self.ctx.text_pos(self.doc.input_text(), node.range().start);
+    fn location(&self, node: InputNode<'a, 'i>) -> Location {
+        if let InputNode::Tree(tree, id) = node {
+            let mut location = tree.location(id);
+            location.part = self.ctx.part.clone();
+            return location;
+        }
+        let (line, column) = self.doc.map_or((0, 0), |doc| self.ctx.text_pos(doc.input_text(), node.range().start));
         let mut path = Vec::new();
         let mut n = Some(node);
-        while let Some(e) = n.filter(Node::is_element) {
-            let name = qualified(e);
+        while let Some(e) = n.filter(InputNode::is_element) {
+            let name = e.qualified();
             // `prev_siblings` starts at `e`, so this is the 1-based position.
-            let position = e.prev_siblings().filter(|s| s.is_element() && qualified(*s) == name).count();
+            let position = e.prev_siblings().filter(|s| s.is_element() && s.qualified() == name).count();
             path.push(if position <= 1 { name.into_owned() } else { format!("{name}[{position}]") });
             n = e.parent();
         }
@@ -188,7 +230,7 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
 
     /// The location of an error at `node`; only the part while a choice
     /// tries alternatives.
-    fn error_location(&self, node: Node<'a, 'i>) -> Location {
+    fn error_location(&self, node: InputNode<'a, 'i>) -> Location {
         if self.ctx.trial > 0 { Location { part: self.ctx.part.clone(), ..Location::default() } } else { self.location(node) }
     }
 
@@ -196,14 +238,14 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
         Error::new(ErrorKind::Schema, message).at(self.error_location(self.node))
     }
 
-    fn warn(&mut self, node: Node<'a, 'i>, message: String) {
+    fn warn(&mut self, node: InputNode<'a, 'i>, message: String) {
         // Locating is linear in the number of siblings: skip it once full.
         let location = if self.ctx.full() { Location::default() } else { self.location(node) };
         self.ctx.warn(message, location);
     }
 
     /// An error in strict mode; a warning in lenient mode.
-    fn reject(&mut self, node: Node<'a, 'i>, message: String) -> Result<(), Error> {
+    fn reject(&mut self, node: InputNode<'a, 'i>, message: String) -> Result<(), Error> {
         if self.ctx.lenient() {
             self.warn(node, message);
             Ok(())
@@ -322,7 +364,26 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
     }
 
     pub fn opt_elem<T>(&mut self, name: &str, f: impl FnOnce(&mut Reader<'_, 'a, 'i>) -> Result<T, Error>) -> Result<Option<T>, Error> {
-        if self.peek() == Some(name) { self.elem(name, f).map(Some) } else { Ok(None) }
+        if self.peek() != Some(name) {
+            return Ok(None);
+        }
+        let node = self.kids[self.next].0;
+        let mark = self.mark();
+        match self.elem(name, f) {
+            Ok(value) => Ok(Some(value)),
+            Err(e)
+                if self.ctx.lenient()
+                    && e.kind() == ErrorKind::Schema
+                    && e.message().starts_with("content matches no alternative of ")
+                    && e.location().is_some_and(|l| l.part == self.ctx.part && l.element == self.location(node).element) =>
+            {
+                self.reset(&mark);
+                self.next += 1;
+                self.warn(node, format!("optional <{name}> omitted from typed projection: {}", e.message()));
+                Ok(None)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn elems<T>(&mut self, name: &str, mut f: impl FnMut(&mut Reader<'_, 'a, 'i>) -> Result<T, Error>) -> Result<Vec<T>, Error> {
@@ -353,7 +414,11 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
             return Ok(());
         }
         let value = slot.get_or_insert_with(T::placeholder);
-        self.elem(name, |r| T::read_into(r, value))
+        let present = self.opt_elem(name, |r| T::read_into(r, value))?;
+        if present.is_none() {
+            *slot = None;
+        }
+        Ok(())
     }
 
     pub fn elems_into<T: Content>(&mut self, name: &str, out: &mut Vec<T>) -> Result<(), Error> {
@@ -382,8 +447,7 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
         if slot.is_some() {
             return self.duplicate(name);
         }
-        let value = slot.get_or_insert_with(T::placeholder);
-        self.elem(name, |r| T::read_into(r, value))
+        self.opt_elem_into(name, slot)
     }
 
     /// An interleaved element that must occur exactly once; `seen` records it.
@@ -411,7 +475,9 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
     /// Reads an interleaved element that may occur at most once.
     pub fn once<T>(&mut self, name: &str, slot: &mut Option<T>, f: impl FnOnce(&mut Reader<'_, 'a, 'i>) -> Result<T, Error>) -> Result<(), Error> {
         let node = self.kids.get(self.next).map(|(n, _)| *n);
-        let value = self.elem(name, f)?;
+        let Some(value) = self.opt_elem(name, f)? else {
+            return Ok(());
+        };
         if slot.is_some() {
             let message = format!("<{name}> occurs more than once");
             if let Some(node) = node {
@@ -539,6 +605,13 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
         if !self.ctx.used.insert(path.to_owned()) {
             return Err(Error::new(ErrorKind::Package, format!("{path} is referenced twice")).at(self.location(self.node)));
         }
+        if let Some(tree) = self.ctx.element_parts.remove(path) {
+            let outer = std::mem::replace(&mut self.ctx.part, path.to_owned());
+            let result = read_element_part(self.ctx, &tree, T::ELEMENT);
+            self.ctx.part = outer;
+            self.ctx.element_parts.insert(path.to_owned(), tree);
+            return result;
+        }
         let Some(bytes) = self.ctx.files.get(path) else {
             return Err(Error::new(ErrorKind::Package, format!("missing part {path}")).at(self.location(self.node)));
         };
@@ -551,74 +624,11 @@ impl<'c, 'a, 'i> Reader<'c, 'a, 'i> {
     }
 }
 
-/// Whether elements in `xml` nest deeper than `max`. Checked before parsing
-/// because the parser recurses once per level: a hostile document could
-/// otherwise exhaust the stack.
-pub(crate) fn nesting_exceeds(xml: &str, max: usize) -> bool {
-    let b = xml.as_bytes();
-    let find = |from: usize, pat: &[u8]| b.get(from..).and_then(|rest| rest.windows(pat.len()).position(|w| w == pat)).map(|p| from + p);
-    let mut depth = 0usize;
-    let mut i = 0;
-    while let Some(start) = b.get(i..).and_then(|rest| rest.iter().position(|&c| c == b'<')).map(|p| i + p) {
-        let rest = b.get(start..).unwrap_or_default();
-        let end = if rest.starts_with(b"<!--") {
-            find(start, b"-->").map(|e| e + 3)
-        } else if rest.starts_with(b"<![CDATA[") {
-            find(start, b"]]>").map(|e| e + 3)
-        } else if rest.starts_with(b"<?") {
-            find(start, b"?>").map(|e| e + 2)
-        } else if rest.starts_with(b"<!") || rest.starts_with(b"</") {
-            if rest.starts_with(b"</") {
-                depth = depth.saturating_sub(1);
-            }
-            find(start, b">").map(|e| e + 1)
-        } else {
-            // A start tag: find its end outside quoted attribute values.
-            let mut quote = None;
-            let mut end = None;
-            for (j, &c) in rest.iter().enumerate().skip(1) {
-                match (quote, c) {
-                    (Some(q), c) if c == q => quote = None,
-                    (Some(_), _) => {}
-                    (None, b'"' | b'\'') => quote = Some(c),
-                    (None, b'>') => {
-                        end = Some(start + j + 1);
-                        if rest.get(j - 1) != Some(&b'/') {
-                            depth += 1;
-                        }
-                        break;
-                    }
-                    (None, _) => {}
-                }
-            }
-            end
-        };
-        if depth > max {
-            return true;
-        }
-        // Malformed input: the parser reports it.
-        let Some(end) = end else { return false };
-        i = end;
-    }
-    false
-}
-
 /// A boxed placeholder. Kept out of line so that the placeholder's stack
 /// temporary is not part of the caller's frame.
 #[inline(never)]
 fn new_box<T: Content>() -> Box<T> {
     Box::new(T::placeholder())
-}
-
-/// `prefix:local` for the packaging namespace, `local` without namespace,
-/// `{ns}local` otherwise.
-pub(crate) fn qualified<'a>(node: Node<'a, '_>) -> Cow<'a, str> {
-    let name = node.tag_name();
-    match name.namespace() {
-        None => Cow::Borrowed(name.name()),
-        Some(PACKAGING_NS) => Cow::Owned(format!("idPkg:{}", name.name())),
-        Some(ns) => Cow::Owned(format!("{{{ns}}}{}", name.name())),
-    }
 }
 
 /// The `token` whitespace rule.

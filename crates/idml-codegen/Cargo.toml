@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+miniz_oxide = { workspace = true }
 roxmltree = { workspace = true }
 sha2 = { workspace = true }
 

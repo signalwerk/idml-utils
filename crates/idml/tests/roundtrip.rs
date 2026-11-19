@@ -1,3 +1,4 @@
+#![cfg(feature = "owned")]
 //! Round trips of schema-valid documents generated from the grammar.
 //!
 //! The documents come from `idml_codegen::instance`, which walks the RELAX NG
@@ -11,12 +12,64 @@
 mod common;
 
 use common::{CONTAINER, PARTS, canon, difference, schema, unzip, zip};
-use idml::Package;
+use idml::OwnedPackage;
 use idml_codegen::instance::{Generator, Lexical, Style};
 
 /// Documents per part and style, before adding documents for what is still
 /// missing.
 const DOCUMENTS: u64 = 6;
+
+/// Optional independent validator. Set IDML_JING_JAR to a Jing JAR to run it.
+#[test]
+fn jing_validates_written_packages_with_layouts() {
+    let Some(jar) = std::env::var_os("IDML_JING_JAR") else { return };
+    let schema = schema();
+    let dir = std::env::temp_dir().join(format!("idml-jing-layout-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut checks = std::collections::BTreeMap::<String, Vec<std::path::PathBuf>>::new();
+    for entry in &schema.entries {
+        let path = dir.join(&entry.file).with_extension("rng");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, idml_codegen::rng::write(&schema, entry).unwrap()).unwrap();
+    }
+    for seed in 1..=4 {
+        let style = if seed <= 2 { Style::Full } else { Style::Random };
+        let mut generator = Generator::new(&schema, seed, style, Lexical::Canonical);
+        let entry = schema.entries.iter().find(|e| e.file == "designmap.rnc").unwrap();
+        let files = package_files(&mut generator, &schema, entry);
+        let mut package = OwnedPackage::read(&zip(&files), &idml::ReadOptions::default()).unwrap().value;
+        package.document.self_ = format!("jing-{seed}");
+        for (path, xml) in unzip(&package.write().unwrap()) {
+            if !path.ends_with(".xml") || path.starts_with("META-INF/") {
+                continue;
+            }
+            let doc = roxmltree::Document::parse(&xml).unwrap();
+            let root = doc.root_element().tag_name();
+            let entry = schema
+                .entries
+                .iter()
+                .find(|e| e.root.local == root.name() && Some(e.root.ns.as_str()).filter(|s| !s.is_empty()) == root.namespace())
+                .unwrap();
+            let output = dir.join(format!("{seed}-{path}"));
+            std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+            std::fs::write(&output, xml).unwrap();
+            checks.entry(entry.file.clone()).or_default().push(output);
+        }
+    }
+    assert_eq!(checks.len(), schema.entries.len());
+    for (file, documents) in checks {
+        let result =
+            std::process::Command::new("java").arg("-jar").arg(&jar).arg(dir.join(file).with_extension("rng")).args(documents).output().unwrap();
+        assert!(
+            result.status.success(),
+            "Jing: {}\n{}\nFiles retained in {}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr),
+            dir.display()
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
 #[test]
 fn parts_are_complete() {
@@ -70,7 +123,7 @@ fn round_trip(g: &mut Generator, schema: &idml_codegen::schema::Schema, file: &s
         return;
     }
     let files = package_files(g, schema, entry);
-    let package = Package::read(&zip(&files), &options).unwrap_or_else(|e| panic!("package {what}: {e}")).value;
+    let package = OwnedPackage::read(&zip(&files), &options).unwrap_or_else(|e| panic!("package {what}: {e}")).value;
     let written = unzip(&package.write().unwrap());
     for (path, original) in &files {
         if path == "mimetype" || path.starts_with("META-INF") {

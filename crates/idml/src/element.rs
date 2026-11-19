@@ -4,9 +4,9 @@
 /// An XML element of a package part: a name, attributes in order, and either
 /// child elements or text (IDML has no mixed content).
 ///
-/// [`Package::from_elements`](crate::Package::from_elements) reads elements
-/// into the typed model, which checks them against the schema; their order
-/// becomes the package's [`Layout`](crate::Layout).
+/// [`Package::from_elements`](crate::Package::from_elements) builds authoritative
+/// arena nodes directly, preserving order and explicit versions. Validate the
+/// assembled package or use `Authoring` for exact-target schema checks.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Element {
     /// The qualified name, such as `Story` or `idPkg:Spread`.

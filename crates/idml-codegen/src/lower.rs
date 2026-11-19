@@ -362,7 +362,7 @@ impl<'s> Lower<'s> {
                 }
             }
             Kind::Attribute(NameClass::Name(n), v) => {
-                if n.prefix.is_some() {
+                if n.prefix.is_some() || !n.ns.is_empty() {
                     return Err(format!("{}: namespaced attribute {}", owner.path, n.qualified()));
                 }
                 self.cover(p);

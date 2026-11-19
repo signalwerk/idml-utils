@@ -18,13 +18,16 @@ pub mod history;
 pub mod instance;
 pub mod lower;
 pub mod map;
+pub mod migrations;
 pub mod model;
 pub mod names;
+pub mod profiles;
 pub mod report;
 pub mod rnc;
 pub mod rng;
 pub mod schema;
 pub mod upgrade;
+pub mod views;
 
 /// The workspace directory.
 pub fn workspace_dir() -> PathBuf {
@@ -77,7 +80,13 @@ const GENERATED_DIRS: [&str; 2] = ["crates/idml/src/model", "docs"];
 pub fn generate(schema_dir: &Path, history: Option<&Path>, upgrades: Option<&Path>) -> Result<BTreeMap<String, String>, String> {
     let schema = schema::Schema::load(schema_dir)?;
     let mut model = lower::lower(&schema)?;
-    let mut files = BTreeMap::new();
+    let mut files = match history {
+        Some(root) => generate_universal(root)?,
+        None => BTreeMap::new(),
+    };
+    if history.is_none() {
+        files.insert("crates/idml/src/migration_data.rs".into(), migrations::rust(include_str!("../../idml/schema-migrations.tsv"))?);
+    }
     let mut upgrades_rs = upgrade::rust(None, emit::HEADER);
     if let Some(root) = history {
         let history = history::History::new(history::snapshots(root)?);
@@ -99,6 +108,28 @@ pub fn generate(schema_dir: &Path, history: Option<&Path>, upgrades: Option<&Pat
     }
     files.insert("crates/idml/schema-map.tsv".to_owned(), map::tsv(&model, &schema));
     Ok(files)
+}
+
+/// Universal runtime artifacts, independent of loading/lowering an owned model.
+pub fn generate_universal(history: &Path) -> Result<BTreeMap<String, String>, String> {
+    Ok(BTreeMap::from([
+        ("crates/idml/src/profile_data.rs".into(), profiles::rust(history)?),
+        ("crates/idml/src/views.rs".into(), views::rust(history)?),
+        ("crates/idml/src/migration_data.rs".into(), migrations::rust(include_str!("../../idml/schema-migrations.tsv"))?),
+    ]))
+}
+
+/// Write just the selected artifacts. In particular, universal-only generation
+/// must not delete the separately generated projection or documentation.
+pub fn write_selected(root: &Path, files: &BTreeMap<String, String>) -> Result<(), String> {
+    for (rel, text) in files {
+        let path = root.join(rel);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        }
+        fs::write(&path, text).map_err(|e| format!("{rel}: {e}"))?;
+    }
+    Ok(())
 }
 
 /// The files in the generated directories that are not generated.

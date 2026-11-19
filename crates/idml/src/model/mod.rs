@@ -42,3 +42,6 @@ pub const INDESIGN_VERSION: &str = "21.5.0.64";
 
 /// SHA-256 over the schema files (path and SHA-256 of each) the model was generated from.
 pub const SCHEMA_SHA256: &str = "80d5c7658a01ad512229e26fa469c17073b4b75be07c6cc4421337fc33c50265";
+
+/// SHA-256 of the evidence-backed corrections, separate from SCHEMA_SHA256.
+pub const AMENDMENTS_SHA256: &str = "fee855f6f922fb9f8c2971fccfea2b91742fabea41abe954b1852c24b308bf69";

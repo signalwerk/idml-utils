@@ -2,7 +2,7 @@
 //! attributes and child elements, compression, and the few places where
 //! InDesign's own output varies.
 //!
-//! [`Package::read`](crate::Package::read) records the layout of what it
+//! `OwnedPackage::read` (feature `owned`) records the layout of what it
 //! reads, and writing follows it, so a package that is read and written again
 //! keeps its bytes where its content is unchanged. A new package has an empty
 //! layout and is written as InDesign writes packages.
@@ -11,8 +11,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
+#[cfg(feature = "owned")]
 use roxmltree::Node;
 
+#[cfg(feature = "owned")]
 use crate::xml::qualified;
 
 /// How a package is written (see the module documentation).
@@ -25,10 +27,8 @@ use crate::xml::qualified;
 /// schema order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Layout {
-    /// The `DOMVersion` written into every part, if not
-    /// [`model::DOM_VERSION`](crate::model::DOM_VERSION). The content is not
-    /// converted: set it only for content that is valid in that version.
-    pub dom_version: Option<String>,
+    /// The rootfile path recorded in container.xml; defaults to designmap.xml.
+    pub designmap_path: Option<String>,
     /// The designmap's `aid` processing instruction (the text between `<?`
     /// and `?>`), if not the one for this library's InDesign version.
     pub aid: Option<String>,
@@ -87,17 +87,41 @@ pub struct ElementLayout {
 
 impl Layout {
     /// No layout: everything written as InDesign writes it.
-    pub const EMPTY: Layout = Layout { dom_version: None, aid: None, container: None, entries: Vec::new(), parts: BTreeMap::new() };
+    pub const EMPTY: Layout = Layout { designmap_path: None, aid: None, container: None, entries: Vec::new(), parts: BTreeMap::new() };
 }
 
 impl PartLayout {
     /// The layout InDesign gives the part at `path`.
+    #[cfg(feature = "owned")]
     pub(crate) fn indesign(path: &str) -> PartLayout {
         let final_newline = !(path.starts_with("Resources/") || path.starts_with("XML/"));
         PartLayout { final_newline, root: ElementLayout::default() }
     }
 
+    #[cfg(feature = "owned")]
+    pub(crate) fn from_tree(tree: &crate::XmlTree) -> PartLayout {
+        let mut layouts = std::collections::HashMap::new();
+        let ids: Vec<_> = tree.descendants(tree.root()).filter(|n| tree.name(*n).is_some()).collect();
+        for id in ids.into_iter().rev() {
+            let children = tree
+                .elements(id)
+                .filter_map(|child| {
+                    layouts.remove(&child).map(|layout| (Arc::from(tree.name(child).map(|n| n.qualified()).unwrap_or_default()), layout))
+                })
+                .collect();
+            let layout = ElementLayout {
+                attributes: tree.attributes(id).map(|a| Arc::from(a.name.qualified())).collect(),
+                children,
+                end_tag: tree.explicit_end(id),
+                cdata: tree.cdata(id),
+            };
+            layouts.insert(id, layout);
+        }
+        PartLayout { final_newline: tree.original_xml().ends_with('\n'), root: layouts.remove(&tree.root()).unwrap_or_default() }
+    }
+
     /// The layout of a part as read from `text`, whose root element is `root`.
+    #[cfg(feature = "owned")]
     pub(crate) fn of(text: &str, root: Node<'_, '_>) -> PartLayout {
         let mut names = Names::default();
         PartLayout { final_newline: text.ends_with('\n'), root: ElementLayout::of(text, root, &mut names) }
@@ -126,8 +150,10 @@ type FnvMap<K, V> = HashMap<K, V, BuildHasherDefault<Fnv>>;
 
 /// The names of one part, each allocated once.
 #[derive(Default)]
+#[cfg(feature = "owned")]
 struct Names(FnvMap<String, Arc<str>>);
 
+#[cfg(feature = "owned")]
 impl Names {
     fn get(&mut self, name: &str) -> Arc<str> {
         if let Some(n) = self.0.get(name) {
@@ -140,6 +166,7 @@ impl Names {
 }
 
 impl ElementLayout {
+    #[cfg(feature = "owned")]
     fn of(text: &str, node: Node<'_, '_>, names: &mut Names) -> ElementLayout {
         let attributes = node.attributes().filter(|a| a.namespace().is_none()).map(|a| names.get(a.name())).collect();
         let children: Vec<(Arc<str>, ElementLayout)> =

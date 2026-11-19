@@ -1396,6 +1396,11 @@ ranged! {
 }
 
 ranged! {
+    /// Schema: `xsd:double {minInclusive="0" maxInclusive="4000"}`.
+    Double0To4000: f64 = 0.0 ..= 4000.0
+}
+
+ranged! {
     /// Schema: `xsd:double {minInclusive="0" maxInclusive="432"}`.
     Double0To432: f64 = 0.0 ..= 432.0
 }

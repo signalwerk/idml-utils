@@ -1,238 +1,221 @@
 # Architecture
 
-`idml` is a Rust library for IDML packages whose document model is generated
-from the RELAX NG schemas that InDesign generates itself. This document
-explains how the schema becomes code, why the result is complete, and the
-decisions behind it.
+`idml` has one version-neutral document representation. A schema is a validator
+and a vocabulary source, not the storage format. The default library can preserve,
+edit and write content from any DOMVersion without first projecting it into the
+newest schema. Checked authoring uses an explicit exact target profile.
 
-## Pipeline
+## Decisions reviewed
+
+| Concern | Decision and reason |
+| --- | --- |
+| Authoritative storage | Keep the iterative `XmlTree` arena. Stable node IDs carry original XML spans, namespace context and edits, so unknown data survives. |
+| Primary package API | `Package` now names that source-backed representation. `new(version, self_id)` requires a version; no implicit latest target exists. |
+| Owned structs for one release | Keep as the opt-in `owned` feature (`OwnedPackage`, `model`, `XmlPart`, `PartFile`). They are an adapter, not the universal document. Default builds exclude the recursive current-schema model. |
+| Typed vocabulary | Generate one union of historical element names, attributes and values. Avoid complete duplicate models per release. A known typed value is not proof that it is allowed in the current target/context. |
+| Version enforcement | Check complete staged edits against an exact profile. Temporary drafts can be incomplete or use a newer vocabulary. Named setters check lexical vocabulary; `set_checked` supplies an optional explicit field-level check. |
+| Upgrade selection | The caller selects a target. Show compatibility and upgrade options per observed snapshot; never automatically select the newest or assume every later release supports a field. |
+| Conversion rules | Separate reviewed, directed endpoint migrations from current-model projection rules. A successful grammar check is required at the destination. No inverse or missing-release transformations are invented. |
+| Loss | Forbid data/semantic loss by default. Mapping to a merely similar replacement is lossy. Retain locations and original fragments in the report. |
+| Unknown versions/extensions | Parsing/writing remains possible; schema acceptance remains unknown until a suitable catalog is supplied. No fallback drops or defaults unknown data. |
+| Version labels | Preserve per-part source labels. New parts inherit an explicit document version only when missing their own label. Retargeting happens only in conversion proposals; the owned layout cannot override labels. |
+| Schema evidence | Keep raw upstream grammars separate from evidence-backed effective corrections. Missing snapshots give observation bounds, not exact introduction dates. |
+| Package metadata | Preserve non-directory entry contents, entry order/compression and XML spelling. ZIP timestamps, extra fields and archive comments are regenerated. Reject unsupported formats, and archives whose local headers, central directory, entry ranges or end record disagree, rather than guessing or silently replacing data. |
+
+## Runtime layers
 
 ```text
-schemas/<build>/package/*.rnc
-  └─ idml-codegen
-       rnc.rs     parse the compact syntax (the subset InDesign emits)
-       rng.rs     parse the XML syntax (some published schemas exist only so)
-       schema.rs  merge the part grammars; check shared definitions agree; reachability;
-                  apply crates/idml/schema-amendments.tsv
-       lower.rs   map every reachable pattern to the model; fail on anything unmapped
-       history.rs date every item from all schemas/*/ snapshots → crates/idml/schema-history.tsv
-       upgrade.rs check crates/idml/schema-upgrades.tsv against them → src/model/upgrades.rs
-       emit.rs    Rust source            → crates/idml/src/model/*.rs
-       map.rs     schema item → Rust item → crates/idml/schema-map.tsv
-       report.rs  changes from version to version (HTML) → docs/
-  └─ idml (runtime)
-       model/     generated types (checked in, never edited)
-       value.rs   XML Schema datatypes, checked newtypes, enum/range macros
-       xml/       reader and writer that generated code drives
-       layout.rs  how a package is written apart from its content: kept from reading
-       element.rs untyped elements, read into the model by Package::from_elements
-       package.rs ZIP container, designmap, conventions outside the schema
-       upgrade.rs edits parts of older DOMVersions before they are read
+Package (package.rs)
+  ├─ XmlTree (tree.rs): flat arena, lexical source, stable IDs, iterative I/O
+  ├─ views + view.rs: borrowed fields and producer Element builders
+  ├─ SchemaCatalog (profile.rs): independent exact-profile validation
+  └─ Authoring (authoring.rs): committed target + transactional drafts
+        └─ ConversionPlan + MigrationRegistry (migration.rs)
+
+optional feature owned
+  └─ OwnedPackage (projection.rs) + model/ + xml/ + preserve.rs
+       └─ projection rules (upgrade.rs), never source migration rules
 ```
 
-The generated files are checked in, so the library builds without the
-generator, and diffs show every model change. `cargo test` fails when they
-differ from what the generator produces for the schema directory named in
-`crates/idml/Cargo.toml` (`[package.metadata.idml] schema`).
+`Package::read` checks XML/package structure, not the schema vocabulary. Unknown
+attributes, children, enum literals, processing instructions and comments remain
+accessible. `ReadOptions::default()` uses an explicit 4096-level resource limit;
+parse, edit, write, clone and drop of the arena do not recurse with document depth.
+`Field` distinguishes absent, known and unrecognized data, retaining raw lexical
+values and reasons. Raw operations stay available for extension content.
 
-## Mapping rules
+`semantic::SemanticGraph` is a separate read-only identity/reference index over a
+closed relationship catalog (`ReferenceKind`). Each kind declares its owner
+elements, expected target types and whether `n` is a nil marker; each was added
+only after the local corpus showed consistent targets. It reports duplicate
+identities and unresolved, ambiguous or unexpected targets, without treating an
+incomplete index as proof of invalidity. Typed `Properties` children such as
+`BasedOn` mix object and string forms and stay uninterpreted. `Link` URIs are
+external resources, never resolved against a file system. Thread reconstruction
+follows resolved `NextTextFrame` links; reciprocal previous/next pairs and
+story/frame relations are legitimate cycles, while a next-chain that returns to
+itself, joins, non-reciprocal links, mixed `ParentStory` values and stories split
+over several threads are reported as departures from the observed native pattern. `document` supplies
+borrowed source views for stories and text containers. Its iterative text events
+walk paragraph/character ranges, emit unfamiliar content as opaque source nodes
+and avoid flattening nested stories or inferring geometry/defaults.
+`text_flows` adds borrowed containers in thread order from one owned graph
+snapshot, so its indices cannot go stale. This is a scoped facade, not a rebuilt
+universal document model. `compose` produces new
+story parts; `Package::add_story` registers identity/part/StoryList atomically and
+can participate in the existing exact-target transactional authoring workflow.
 
-| Schema | Rust |
-|---|---|
-| `X_Object`, `X_File` (element definitions) | `struct X` / `struct XFile` |
-| `X_EnumValue` | `enum X` with `ALL`, `as_str`, `FromStr` |
-| `X_TypeDef` with attributes/elements | `struct X` or `enum X` (choice) |
-| `X_TypeDef` that is a value | `type X = …` |
-| `attribute N { V }`, `attribute N { V }?` | field `n: V`, `n: Option<V>` |
-| `attribute N { "literal" }` (`type`, `DOMVersion`, …) | no field: checked on read, always written |
-| child `p`, `p?`, `p*` | `T`, `Option<T>`, `Vec<T>` |
-| `p, q` | fields in schema order |
-| `p & q` | fields; read in any order |
-| interleave with ≥2 repeated members | one `Vec<OwnerChild>` keeping document order (story text!) |
-| `(type="a", …) \| (type="b", …)` | `enum` with one variant per branch |
-| `EnumA \| EnumB` as a value | `enum AOrB` |
-| `xsd:double {minInclusive maxInclusive}` | `Double0To100` etc.: `new()` checks the range |
-| `list { T, T }`, `list { T* }` | `[T; 2]`, `Vec<T>` (strings in lists: `Token`) |
-| `xsd:string`, `boolean`, `int`, `short`, `double`, `dateTime` | `String`, `bool`, `i32`, `i16`, `f64`, `DateTime` |
-| `text` | `String` |
-| inline `element E { … }` | collapsed when it carries one kind of data (`<Label>` → `Vec<KeyValuePair>`, `<ListItem type="double">` → `f64`), else a struct/enum named `E` (or `OwnerE` when `E` has different contents in different places) |
-| designmap `<idPkg:Spread src=…/>` | `Vec<Part<SpreadFile>>`: the reference *is* the part |
+`Element`/`Builder<T>` is a convenient producer representation. Construction from
+it feeds the arena directly, avoiding XML serialization/reparsing. Parts added
+with `add_part` get a designmap reference together with their content. They inherit
+only a missing version, retain explicit namespaces and reject path collisions.
+The source arena, rather than recursive Element trees, is appropriate for deep
+or mixed-content editing.
 
-Names follow Rust conventions (`XMLElement` → `XmlElement`, `@Self` →
-`self_`). Every type, field and variant documents its schema item; the
-complete list is [`schema-map.tsv`](crates/idml/schema-map.tsv).
+## Version-first authoring
 
-## Why the model is complete
+```rust
+let mut document = Authoring::new(catalog, profile_8, "document")?;
+let draft = document.plan_edit(|package| {
+    // Insert parts or use typed views, including a newer feature.
+    Ok(())
+})?;
+// draft.validation() explains failures at 8.0.
+// draft.compatible_upgrades() lists observed compatible profiles.
+let plan = draft.for_target(profile_10, LossPolicy::Forbid)?;
+plan.apply(&mut document)?;
+let bytes = document.write()?; // Explicitly selected 10.0, never latest.
+```
 
-The claim, for the pinned schema build: every document the package grammars
-admit can be represented, and every representable value is written as a
-document the grammars admit, with the same information.
+See the runnable `versioned_authoring` example. It starts at 8.0 and adds a
+ColorGroup to the designmap, supported by the 10.0 snapshot. It then chooses 10.0
+explicitly. Tests also stage `SelectedPageItems` at 8.0 and move to 15.0.
 
-1. **Total parsing.** The RNC parser accepts exactly the constructs
-   InDesign's schemas use and fails on any other, so a new construct cannot
-   be skipped silently. The one tolerated deviation, comment lines without
-   `#` that InDesign writes into `datatype.rnc`, is listed in the schema map
-   (the published 15.0 and 21.5 copies have them commented out).
-2. **Constructive mapping.** Lowering is defined for each RELAX NG
-   constructor (element, attribute, group, interleave, choice, optional,
-   zero-or-more, list, data with facets, value, text, empty, reference) and
-   composes them. Every pattern node it represents is recorded; generation
-   fails unless every node of every reachable definition is represented.
-   Constructs it cannot represent losslessly (optional literal attributes,
-   heterogeneous lists, choices inside sequences, mixed content) stop
-   generation instead of being approximated.
-3. **Types carry the constraints.** Required, optional and repeated
-   content, enumerations, ranges, list arity and token rules are types. A
-   value of the model is therefore valid by construction; the writer only
-   checks what XML itself cannot carry (U+FFFE and U+FFFF, control
-   characters in attributes) and package rules (unique part paths).
-4. **Independent oracle.** `idml_codegen::instance` generates random
-   schema-valid documents by walking the grammar (not the model). The tests
-   read them, write them again and compare the XML structurally; together the
-   documents must exercise every attribute, element, choice branch and enum
-   literal of the schemas. Writing is also checked to be stable for documents
-   using every valid lexical form (`1.0`, ` +7 `, `1` for true) and any
-   interleave order.
-5. **External validation.** Jing, the reference RELAX NG validator,
-   accepted 180 generated documents (all parts, every style) and the
-   library's output for each of them, against the 21.5 schemas (of build
-   21.5.1.73, which differ from 21.5.0.64 only in comment lines). This
-   checks the oracle as well as the writer. It is a one-time check, not part
-   of `cargo test`.
-6. **Traceability.** `schema-map.tsv` lists each schema item with its Rust
-   item and type. It is regenerated with the code, so `git diff` shows
-   exactly what a new schema adds, removes or changes.
+`Authoring` owns a committed Package and its exact profile. `plan_edit` clones
+that state, applies the closure and validates the result against the selected
+target. A failing closure or blocked proposal leaves committed content intact.
+`for_target` always starts from the original edited draft; repeated retargeting
+cannot hide loss already performed in another preview. Apply checks the catalog,
+profile, uncompressed entry content, arena identity and revision. Stale checks
+avoid repeated ZIP compression. Raw attachments are shared across drafts with
+copy-on-write mutation; writing borrows unchanged attachments. It commits document/profile
+together. `Package::write_checked` is available without an Authoring session.
 
-What the claim does not cover: whether InDesign accepts a schema-valid
-document (references between objects, such as `ParentStory`, are plain
-strings in the schema and are not checked), and the single-file schema
-(`schemas/*/single/`), which describes a flattened form instead of a package.
+Unvalidated Package writes intentionally remain available: preservation of an
+unknown native export must not depend on proving its schema. A checked authoring
+session rejects invalid envelopes and unparsed/missing referenced parts.
 
-## Version history
+## Identity, capabilities and conversion
 
-Every type, field and variant says which IDML version introduced it
-(`Since IDML 8.0.`); `schema-history.tsv` lists every schema item of every
-version with when it appeared, changed and was removed, and
-[`docs/`](docs/index.html) shows the same per step from
-one version to the next: counts by kind, then each added, removed or changed
-item by definition, with its schema before and after and its Rust item.
+Keep three identities distinct:
 
-- **Snapshots.** Every `schemas/<build>/package` (or `/single`) is compared,
-  ordered by `DOMVersion`. They are the published InDesign-generated
-  schemas found on GitHub, stored as published, with their source in
-  `manifest.json`: 6.0 (CS4, single-file form only), 7.0, 7.5, 8.0, 10.0,
-  11.0 (the last three in Trang's XML syntax, which `rng.rs` reads), 15.0 and
-  21.5.0.64, the newest, which the model is generated from. Builds of one
-  `DOMVersion` with identical items count once.
-- **Item IDs** come from where the schema text defines an item:
-  `TextFrame_Object/@FillColor`, `TextFrame_Object/<Properties>/<Label>`,
-  `AnchorPoint_EnumValue="TopLeftAnchor"`, `…/<AppliedFont>|type=object
-  xsd:string`. Items are collected per part grammar, because older schemas
-  define some names differently in different parts. A fingerprint (an
-  attribute's type and presence, a child's occurrence) detects changes.
-- **Mapping to Rust.** Lowering records the pattern nodes behind every type,
-  field and variant, including each further occurrence of a shared inline
-  element, so an item is dated by its earliest occurrence. Generation fails
-  if a model item has no history.
-- **The single-file form** says nothing about the designmap and the part
-  roots, which it lacks, or about its XMP wildcard (`anything`). For
-  everything else it lists exactly the items of the package form; this was
-  checked with build 21.5.1.73, for which `scripts/generate-idml-schema`
-  generated both forms.
+1. A document's DOMVersion, independently on each part.
+2. A schema snapshot: DOMVersion, product/build, package/consolidated form,
+   locale, plug-in inventory/completeness and original schema hash.
+3. A compatibility profile: that snapshot plus explicit corrections, with
+   separate upstream/amendment hashes and a combined identity.
 
-A version is exact where the snapshot before it is the previous version
-(`7.5`). No schemas were found for 9.0, 12.0 to 14.0 or 16.0 to 21.0, so
-there a version is a range: `> 11.0 <= 15.0` means after 11.0, by 15.0. The
-same holds for changes and removals. `<= 7.0` marks items of the designmap
-and part roots, which the single-file 6.0 schema cannot date. Adding a snapshot
-(generate one with an installed InDesign, or copy a published one with a
-`manifest.json`) refines the history without code changes. A renamed item
-appears as removed and added; numbered variant definitions
-(`XMLInstruction_Object1`) are compared by name.
+Resolving a DOMVersion can be exact, ambiguous or unknown. The caller must choose
+an exact profile when several snapshots share a version. Plug-in inventory is
+never inferred from a version label. Portable catalogs and application-supplied
+migration registries allow independent additions without replacing document types.
 
-## Reading older versions
+Compatibility is a matrix of independently validated observations. For each
+available package profile, hypothetically change only version labels and check
+all retained DOM parts. This does not mutate the source or apply rewrites. The
+first compatible snapshot is not proof of the earliest compatible release, and
+support can be non-monotone. Missing releases remain unknown. Upgrade options
+separately assess reviewed rewrites and their validation/loss reports.
 
-The model is the current schema only; adapters see one model. Older
-documents are upgraded while they are read, and written as the current
-version.
+`schema-migrations.tsv` records explicit directed endpoints, path, operation,
+loss impact, reason and evidence. The generator emits `migration_data.rs`.
+`MigrationRegistry` also accepts application-supplied rules. Conversion first
+tries unchanged content with the chosen labels; if validation fails, it searches
+reviewed edges. Intermediate schemas must accept their output. A bridge to
+another edge is allowed only after an independent grammar check. The search is
+bounded to 64 states; missing/unresolved routes yield blocked proposals.
+Lossless routes are preferred. No numeric-version interval makes a rule apply.
+The result is one bounded candidate, not a complete enumeration of migration
+paths or every loss a different route might entail. Generic removals are one
+pass; if they expose further invalid content, final validation blocks the plan.
 
-- **Rules.** `crates/idml/schema-upgrades.tsv` (hand-written) has a rule for
-  every schema item that an older snapshot has and the current one has not,
-  or has differently: `drop` (with a note saying why; the reader warns),
-  `wrap <A>` (the element is allowed only inside `<A>` now), `default "v"`
-  (an attribute became required), `value "v"` (an enumeration value is
-  gone) or `keep` (old values stay valid, such as a wider range).
-  `idml-codegen` fails if a rule is missing (and prints a suggestion) or is
-  not needed, and checks that a `wrap` target is allowed now.
-- **Edits.** The generator turns the rules into edits by element path and
-  `DOMVersion` range (`src/model/upgrades.rs`). The reader applies them to
-  the text of an older part, rewrites its `DOMVersion` and then reads it like
-  a current one, strictly by default. Line numbers stay, so error locations
-  point into the original.
-- **Proof.** Tests generate documents from each older snapshot's grammars
-  (6.0: the 7.0 part roots around the 6.0 definitions) until every item of
-  them is exercised, and read them strictly with the current model; the only
-  warnings allowed are drops. Without the rules, they fail.
-- **Move hints.** For a child that is no longer allowed in its parent, the
-  history looks for it nested in elements without an identity (no `@Self`):
-  a 6.0 `<Story>/<TextFrame>` is now `<Story>/<CharacterStyleRange>/<TextFrame>`.
-  The reports and `schema-history.tsv` show these as moved, and missing
-  rules are suggested as `wrap`.
+The initial reviewed edges wrap anchored objects from 6.0 into character ranges
+at 7.0, and map the removed StaticOrderedList option from 8.0 to 10.0. That mapping
+is explicitly lossy: it chooses a similar export behavior. `LossPolicy::Forbid`
+blocks it; Allow still requires target validation. Explicit Allow may also remove
+rejected optional content, reporting original fragments. Missing required data,
+unknown target profiles or failed target validation continue to block application.
 
-The rules and their reasons are listed in
-[`docs/upgrades.html`](docs/upgrades.html) and next to
-each change in the reports.
+Review proposals (`plan_conversion_for_review` / `for_target_for_review`)
+include the available lossy rewrites and optional removals, but initially approve
+none of them. Each loss has an opaque proposal-scoped ID, a machine-readable
+impact, location, original/replacement and, for reviewed rules, separate rule
+and evidence fields. Callers can approve or revoke each loss, or decide all of
+them with a `decide_losses` callback that replaces earlier decisions. IDs and
+decisions cannot be carried into a separately planned proposal or retarget, and
+partial approval never commits a partial preview. Exact profile validation, the checked package
+envelope and stale-state checks remain mandatory for every applied proposal.
 
-## Decisions
+Schema validation covers grammar, datatypes/facets, literal values, attribute and
+child contexts, order, cardinality and required data. Whitespace-only element
+content weakly matches as RELAX NG specifies, so the indented empty elements
+InDesign writes (`<TabList type="list">\n</TabList>`) match like `<TabList/>`;
+whitespace never satisfies required data, and ACE characters are not whitespace. It does not establish
+rendering equivalence or resolve semantic object references inside InDesign.
+Version-specific rendering/default behavior needs separate native evidence.
+Validation spends a finite work budget on grammar traversal, matching, values,
+expression expansion and diagnostics, and bounds grammar recursion. Exhaustion
+is an `Unknown` limit diagnostic rather than invalid content; package validation
+shares one budget across parts. Callers can supply limits for checked output and
+authoring, which carries them through subsequent drafts and target planning.
 
-| Decision | Reason |
-|---|---|
-| Generated typed structs, not typed views over an XML tree | Invalid states are unrepresentable; adapters match exhaustively, so a new enum value or field is a compile-time change for them. |
-| Values compared in their value space | `1.0` and `1` are the same `xsd:double`; the writer uses one canonical form, InDesign's (shortest round-trip digits, the nearest such decimal when two read back, exponents below 1e-4 and from 1e11; `INF`, `NaN`, `true`). `DateTime` keeps its lexical form. |
-| Written as InDesign writes | Tabs, `<a />`, `&#xa;`, CDATA sections of at most 256 KiB for `<Contents>` and the other elements InDesign writes so, InDesign's entry order with `mimetype` stored. A file that InDesign can read is the goal; a diff against an InDesign export should show content, not form. |
-| Layout kept, not compared | Reading records the order of entries, attributes and children, empty-element form, CDATA, compression, final line feeds, `META-INF/container.xml` and the `aid` instruction (`Layout`); writing follows it where it fits the content, so a read package is written back byte for byte where unchanged. `Package` equality ignores it, as layout is not content. Layouts are found by element name and position, which survives edits that add or remove elements of other names. |
-| Schemas amended where InDesign contradicts them | InDesign writes some content its schemas reject (`<Endnote>` in text, text in `<EndnoteRange>`). `schema-amendments.tsv` adds it, with evidence, to every snapshot defining the names involved, so the model, history and oracle include it. |
-| Conservative datatypes | Where XML Schema versions or validators disagree, only the common subset is accepted: `24:00:00` (allowed by an XSD 1.0 erratum, rejected by Jing) is not a valid `DateTime`, `+INF` is not a valid double. |
-| Interleaved singletons written in schema order | Their order carries no information; repeated members keep document order, which matters for text. |
-| `required` fields come from `new()`, not `Default` | A placeholder value for required data would be silently wrong. Types without required data implement `Default`. |
-| Strict by default, lenient on request | Strict reading rejects anything outside the schema with a location. Lenient reading skips unknown attributes and elements, invalid optional values and other `DOMVersion`s, reporting each as a warning (the first 1000 in detail), for documents from other InDesign versions. |
-| No preservation of unknown XML | Kept content could make output invalid. Unreferenced ZIP entries and `META-INF/metadata.xml` are kept verbatim. Comments and processing instructions outside text are dropped. |
-| `<?ACE n?>` in text ↔ control character | IDML encodes characters XML 1.0 cannot contain (U+0000–U+001F except tab, LF, CR) as processing instructions; the model stores the character. |
-| Reading in place | Generated structs are large (hundreds of optional attributes). Children are read into their final heap location, so recursion uses about 1 KiB of stack per level in release builds. `ReadOptions::max_depth` (default 48) is enforced before parsing, as the XML parser recurses too. |
-| No panics, no `unsafe`, no I/O, threads or clocks | Matches the consumers' rules (DesignCraft's never-crash standard, WASM builds). |
-| Dependencies: `roxmltree`, `zip` | Maintained, pure Rust, WASM-capable. The writer is our own: it is small and controls escaping and indentation. It builds a tree before serializing, so that a layout can order attributes and children. |
+## Generation and evidence
 
-## Updating to a new InDesign version
+```text
+schemas/<build>/{package,single} + optional profile.tsv
+  ├─ rnc.rs / rng.rs / schema.rs: parse scoped upstream grammars
+  ├─ schema-amendments.tsv: reviewed effective corrections
+  ├─ profiles.rs → profile_data.rs: interned raw/effective grammar catalog
+  ├─ views.rs → views.rs: shared historical vocabulary and typed access
+  ├─ schema-migrations.tsv → migration_data.rs: reviewed endpoint edges
+  ├─ history.rs → schema-history.tsv: raw observations and bounded dates
+  └─ configured projection schema only
+       ├─ lower.rs / emit.rs → model/ + schema-map.tsv
+       ├─ schema-upgrades.tsv / upgrade.rs → model/upgrades.rs
+       └─ report.rs → docs/
+```
 
-1. Generate its schemas: `./scripts/generate-idml-schema/run.sh` (macOS, InDesign).
-2. Point `[package.metadata.idml] schema` in `crates/idml/Cargo.toml` at the
-   new `schemas/<build>/package`.
-3. `cargo run -p idml-codegen`. If it fails, the schema uses a construct the
-   generator does not represent yet; extend `lower.rs`, never skip it.
-4. If it lists items without an upgrade rule, decide how documents of the
-   previous versions are read and add the rules to `schema-upgrades.tsv`
-   (the suggestions are a start; a `drop` needs a reason).
-5. Review `git diff crates/idml/schema-map.tsv crates/idml/schema-history.tsv`:
-   added, removed and changed items, with their Rust representation and the
-   version. The new snapshot joins the history by being in `schemas/`; its
-   step is the last page of `docs/`.
-6. `cargo test`. Adapters then fail to compile where they match on changed
-   enums or build changed structs.
+`--universal` generates catalogs, union views and migration data independently of
+lowering the owned projection, leaving its model/reports untouched.
+`--export-catalog` exports the portable catalog independently as well. Its
+schemas may have per-part differences; they are not merged into one global
+meaning. `--export-schemas [--raw]` emits standalone RNG for independent Jing
+validation. New unsupported schema constructs fail generation rather than being
+silently approximated. Raw snapshots and amendments have separate provenance.
 
-The model targets one schema build at a time. Older documents are upgraded
-while reading; newer ones can be read in lenient mode. Writing produces the
-current `DOMVersion` unless `Layout::dom_version` names another; the content
-is not converted for it, so a producer sets it only for content valid in that
-version.
+The owned lowering maps elements to structs, enumerations to enums, optional/
+repeated content to Option/Vec, tagged alternatives to enums, constrained numbers
+and lists to checked types, and interleaved text-bearing children to an ordered
+child enum. It checks that every reachable pattern is represented. This is a
+claim about the configured effective grammar only. The source arena does not
+require an owned mapping for every future element.
 
-## Adapters
+Owned reads may omit legacy/unknown content from the projection with warnings,
+while OwnedPackage/XmlPart retain the original XML. Their conservative merger
+rejects ambiguous edits. Their recursive traversal caps depth at 48. Such
+projection rules must not be interpreted as universal conversion guarantees.
 
-The library owns IDML; adapters own their source or editor models:
+## Verification
 
-- **indd-utils** builds `Element` trees from its decoded INDD model and
-  reads them with `Package::from_elements`, keeping its INDD knowledge
-  (attribute IDs, defaults) and leaving XML, schema checks and packaging to
-  this library. It sets `Layout::dom_version` to the document's version.
-- **DesignCraft** maps `Package` to and from its editor model. To keep IDML
-  it does not model, it can retain the read `Package` and patch it on export.
-- **QuarkXPress** and other converters build a `Package` directly.
+The schema oracle produces documents directly from grammars, independently of
+the owned lowering. Profile tests cover every available raw/effective snapshot
+and preserve each part's definition scope. Native corpus round trips check every
+non-directory entry's decompressed contents. Source tests cover stable IDs,
+namespace moves, unknown values, deep XML, transactional application, schema gaps
+and non-monotone capabilities. Authoring tests cover starting at an older target,
+new features, explicit upgrades, stale plans and acknowledged semantic loss.
+
+Run default and all-features workspace tests, both Clippy configurations, generator
+freshness, formatting and WASM checks. Optional Jing validates output independently
+of the oracle/generator. A valid schema result is not a substitute for opening a
+document in InDesign when a change claims rendering or native behavior.

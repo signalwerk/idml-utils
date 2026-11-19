@@ -28,6 +28,8 @@ pub struct Schema {
     pub defs: BTreeMap<String, Def>,
     /// Names of the definitions reachable from an entry's start pattern.
     pub reachable: BTreeSet<String>,
+    /// Added pattern nodes and their amendment IDs (upstream hashes stay unchanged).
+    pub amendment_nodes: BTreeMap<u32, String>,
 }
 
 /// A package part's grammar.
@@ -63,6 +65,7 @@ pub struct Files {
     /// The product the headers name, such as `CC 2014`.
     pub product: Option<String>,
     pub stray_lines: BTreeMap<String, Vec<usize>>,
+    pub amendment_nodes: BTreeMap<u32, String>,
 }
 
 /// One part grammar: a file with a `start`, and the definitions in scope.
@@ -104,7 +107,6 @@ impl Files {
             }
             parsed.insert(rel, file);
         }
-        amend(&mut parsed, ids)?;
         let indesign_version = match versions.len() {
             0 => None,
             1 => versions.into_iter().next(),
@@ -117,7 +119,12 @@ impl Files {
             }
             hex(&h.finalize())
         };
-        Ok(Files { dir: dir.to_owned(), parsed, hashes, sha256, indesign_version, product, stray_lines })
+        Ok(Files { dir: dir.to_owned(), parsed, hashes, sha256, indesign_version, product, stray_lines, amendment_nodes: BTreeMap::new() })
+    }
+
+    pub fn apply_amendments(&mut self, ids: &mut Ids) -> Result<(), String> {
+        self.amendment_nodes = amend(&mut self.parsed, ids)?;
+        Ok(())
     }
 
     /// The part grammars: every file with a `start` and what it includes.
@@ -155,7 +162,20 @@ impl Schema {
     /// Loads the schemas the model is generated from. Unlike [`Files`], this
     /// requires one global meaning per definition name.
     pub fn load(dir: &Path) -> Result<Schema, String> {
-        let files = Files::read(dir, &mut Ids::default())?;
+        Self::load_profile(dir, true)
+    }
+
+    /// Unmodified upstream grammar, for comparison and external validation.
+    pub fn load_raw(dir: &Path) -> Result<Schema, String> {
+        Self::load_profile(dir, false)
+    }
+
+    fn load_profile(dir: &Path, effective: bool) -> Result<Schema, String> {
+        let mut ids = Ids::default();
+        let mut files = Files::read(dir, &mut ids)?;
+        if effective {
+            files.amendment_nodes = amend(&mut files.parsed, &mut ids)?;
+        }
         let indesign_version = files.indesign_version.clone().ok_or("expected a `# Adobe InDesign <version>` header")?;
         Schema::build(dir, &files, &files.grammars()?, indesign_version)
     }
@@ -163,7 +183,17 @@ impl Schema {
     /// One schema per part grammar, for older snapshots, which define some
     /// names differently in different parts.
     pub fn load_parts(dir: &Path) -> Result<Vec<Schema>, String> {
-        let files = Files::read(dir, &mut Ids::default())?;
+        Self::load_parts_profile(dir, false)
+    }
+    pub fn load_effective_parts(dir: &Path) -> Result<Vec<Schema>, String> {
+        Self::load_parts_profile(dir, true)
+    }
+    fn load_parts_profile(dir: &Path, effective: bool) -> Result<Vec<Schema>, String> {
+        let mut ids = Ids::default();
+        let mut files = Files::read(dir, &mut ids)?;
+        if effective {
+            files.apply_amendments(&mut ids)?;
+        }
         let version = files.indesign_version.clone().unwrap_or_default();
         files.grammars()?.iter().map(|g| Schema::build(dir, &files, std::slice::from_ref(g), version.clone())).collect()
     }
@@ -218,6 +248,7 @@ impl Schema {
             entries,
             defs,
             reachable,
+            amendment_nodes: files.amendment_nodes.clone(),
         })
     }
 
@@ -243,40 +274,95 @@ impl Schema {
     }
 }
 
-/// Content InDesign writes but its schemas do not allow
-/// (`crates/idml/schema-amendments.tsv`): each row adds a pattern to the
-/// content of an element definition.
+/// An evidence-backed correction, separate from the upstream schema history.
 #[derive(Debug, Clone)]
 pub struct Amendment {
-    pub definition: String,
+    pub id: String,
+    pub min: String,
+    pub max: String,
+    pub target: String,
+    pub action: String,
     pub pattern: String,
     pub evidence: String,
 }
 
-/// The amendments of `crates/idml/schema-amendments.tsv`.
+impl Amendment {
+    /// Inclusive application bounds, separate from the dates of the evidence.
+    pub fn applies_to(&self, version: &str) -> bool {
+        let (Some(v), Some(min)) = (dom(version), dom(&self.min)) else { return false };
+        v >= min && (self.max == "*" || dom(&self.max).is_some_and(|max| v <= max))
+    }
+}
+
+pub fn amendments_sha256() -> String {
+    hex(&Sha256::digest(include_bytes!("../../idml/schema-amendments.tsv")))
+}
+
 pub fn amendments() -> Result<Vec<Amendment>, String> {
-    const FILE: &str = include_str!("../../idml/schema-amendments.tsv");
-    let mut out = Vec::new();
-    for (i, line) in FILE.lines().enumerate() {
+    parse_amendments(include_str!("../../idml/schema-amendments.tsv"))
+}
+
+pub fn parse_amendments(text: &str) -> Result<Vec<Amendment>, String> {
+    let mut out: Vec<Amendment> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
         if line.starts_with('#') || line.trim().is_empty() {
             continue;
         }
-        let [definition, pattern, evidence] = line.split('\t').collect::<Vec<_>>()[..] else {
-            return Err(format!("schema-amendments.tsv:{}: expected definition, pattern and evidence", i + 1));
+        let error = |why| format!("schema-amendments.tsv:{}: {why}", i + 1);
+        let [id, min, max, target, action, pattern, evidence] = line.split('\t').collect::<Vec<_>>()[..] else {
+            return Err(error("expected id, min DOM, max DOM, target, action, pattern, evidence"));
         };
-        out.push(Amendment { definition: definition.to_owned(), pattern: pattern.to_owned(), evidence: evidence.to_owned() });
+        if id.is_empty() || evidence.trim().is_empty() || out.iter().any(|a| a.id == id) {
+            return Err(error("each amendment needs a unique ID and evidence"));
+        }
+        if dom(min).is_none() || (max != "*" && dom(max).is_none_or(|m| Some(m) < dom(min))) {
+            return Err(error("invalid inclusive DOMVersion bounds"));
+        }
+        if !matches!(action, "add" | "choice" | "replace" | "optional") {
+            return Err(error("unknown amendment action"));
+        }
+        out.push(Amendment {
+            id: id.into(),
+            min: min.into(),
+            max: max.into(),
+            target: target.into(),
+            action: action.into(),
+            pattern: pattern.into(),
+            evidence: evidence.into(),
+        });
     }
     Ok(out)
 }
 
-/// Applies the amendments to every file that defines their definition, if
-/// the files define every name their pattern refers to.
-fn amend(parsed: &mut BTreeMap<String, rnc::File>, ids: &mut Ids) -> Result<(), String> {
+fn dom(text: &str) -> Option<(u16, u16)> {
+    let (a, b) = text.split_once('.')?;
+    Some((a.parse().ok()?, b.parse().ok()?))
+}
+
+/// Corrections affect the effective model/oracle, never raw snapshots.
+fn amend(parsed: &mut BTreeMap<String, rnc::File>, ids: &mut Ids) -> Result<BTreeMap<u32, String>, String> {
+    let mut version = None;
+    for file in parsed.values() {
+        for d in &file.defines {
+            d.pattern.walk(&mut |p| {
+                if let Kind::Attribute(NameClass::Name(n), v) = &p.kind
+                    && n.local == "DOMVersion"
+                    && let Kind::Value { value, .. } = &v.kind
+                {
+                    version = Some(value.clone());
+                }
+            });
+        }
+    }
     let defined: BTreeSet<String> = parsed.values().flat_map(|f| f.defines.iter().map(|d| d.name.clone())).collect();
+    let mut nodes = BTreeMap::new();
     for a in amendments()? {
-        let snippet = rnc::parse(&format!("amendment = {}", a.pattern), ids).map_err(|e| format!("amendment of {}: {e}", a.definition))?;
+        if version.as_deref().is_none_or(|v| !a.applies_to(v)) {
+            continue;
+        }
+        let snippet = rnc::parse(&format!("amendment = {}", a.pattern), ids).map_err(|e| format!("amendment {}: {e}", a.id))?;
         let Some(pattern) = snippet.defines.into_iter().next().map(|d| d.pattern) else {
-            return Err(format!("amendment of {}: no pattern", a.definition));
+            return Err(format!("amendment {}: no pattern", a.id));
         };
         let mut refs = Vec::new();
         pattern.walk(&mut |p| {
@@ -284,22 +370,91 @@ fn amend(parsed: &mut BTreeMap<String, rnc::File>, ids: &mut Ids) -> Result<(), 
                 refs.push(r.clone());
             }
         });
-        if !defined.contains(&a.definition) || refs.iter().any(|r| !defined.contains(r)) {
+        let mut path = a.target.split('/');
+        let definition = path.next().unwrap_or_default();
+        if !defined.contains(definition) {
             continue;
         }
-        for d in parsed.values_mut().flat_map(|f| f.defines.iter_mut()).filter(|d| d.name == a.definition) {
+        if refs.iter().any(|r| !defined.contains(r)) {
+            return Err(format!("amendment {}: undefined reference in {}", a.id, a.pattern));
+        }
+        let path: Vec<&str> = path.collect();
+        let mut matches = 0;
+        for d in parsed.values_mut().flat_map(|f| f.defines.iter_mut()).filter(|d| d.name == definition) {
             let Kind::Element(_, content) = &mut d.pattern.kind else {
-                return Err(format!("amendment of {}: not an element definition", a.definition));
+                return Err(format!("amendment {}: not an element definition", a.id));
             };
-            add_content(content, renumbered(&pattern, ids), ids);
+            apply_at(content, &path, &a, &pattern, ids, &mut nodes, &mut matches);
+        }
+        if matches == 0 {
+            return Err(format!("amendment {}: target {} does not exist", a.id, a.target));
         }
     }
-    Ok(())
+    Ok(nodes)
+}
+
+fn apply_at(p: &mut Pattern, path: &[&str], a: &Amendment, extra: &Pattern, ids: &mut Ids, nodes: &mut BTreeMap<u32, String>, matches: &mut usize) {
+    if path.is_empty() {
+        let extra = renumbered(extra, ids);
+        extra.walk(&mut |q| {
+            nodes.insert(q.id, a.id.clone());
+        });
+        match a.action.as_str() {
+            "add" => add_content(p, extra, ids),
+            "choice" if matches!(p.kind, Kind::Choice(_)) => {
+                if let Kind::Choice(branches) = &mut p.kind {
+                    branches.push(extra);
+                }
+            }
+            "choice" => {
+                let old = std::mem::replace(p, Pattern { id: ids.next(), kind: Kind::Empty });
+                *p = Pattern { id: ids.next(), kind: Kind::Choice(vec![old, extra]) };
+            }
+            _ => *p = extra,
+        }
+        *matches += 1;
+        return;
+    }
+    if a.action == "optional"
+        && path.len() == 1
+        && matches!(&p.kind, Kind::Attribute(NameClass::Name(n), _) if path[0].strip_prefix('@') == Some(n.qualified().as_str()))
+    {
+        let old = std::mem::replace(p, Pattern { id: ids.next(), kind: Kind::Empty });
+        old.walk(&mut |q| {
+            nodes.insert(q.id, a.id.clone());
+        });
+        *p = Pattern { id: ids.next(), kind: Kind::Optional(Box::new(old)) };
+        *matches += 1;
+        return;
+    }
+    match &mut p.kind {
+        Kind::Element(NameClass::Name(n), c) if path[0] == n.qualified() => apply_at(c, &path[1..], a, extra, ids, nodes, matches),
+        Kind::Attribute(NameClass::Name(n), c) if path[0].strip_prefix('@') == Some(n.qualified().as_str()) => {
+            apply_at(c, &path[1..], a, extra, ids, nodes, matches)
+        }
+        Kind::Group(ps) | Kind::Interleave(ps) | Kind::Choice(ps) => {
+            for c in ps {
+                apply_at(c, path, a, extra, ids, nodes, matches);
+            }
+        }
+        Kind::Optional(c) | Kind::ZeroOrMore(c) | Kind::OneOrMore(c) => apply_at(c, path, a, extra, ids, nodes, matches),
+        _ => {}
+    }
 }
 
 /// Adds `extra` to an element's content: into its interleave of child
 /// elements, if it has one, else after the content.
 fn add_content(content: &mut Pattern, extra: Pattern, ids: &mut Ids) {
+    let attribute = match &extra.kind {
+        Kind::Attribute(..) => true,
+        Kind::Optional(p) => matches!(p.kind, Kind::Attribute(..)),
+        _ => false,
+    };
+    if attribute {
+        let old = std::mem::replace(content, Pattern { id: ids.next(), kind: Kind::Empty });
+        *content = Pattern { id: ids.next(), kind: Kind::Group(vec![extra, old]) };
+        return;
+    }
     match &mut content.kind {
         Kind::Interleave(items) => items.push(extra),
         Kind::Group(items) => match items.iter_mut().rev().find(|p| matches!(p.kind, Kind::Interleave(_))) {
@@ -371,11 +526,32 @@ pub fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used, clippy::panic)]
     use super::*;
 
     #[test]
     fn resolves_includes() {
         assert_eq!(resolve("Stories/Story.rnc", "../datatype.rnc"), "datatype.rnc");
         assert_eq!(resolve("designmap.rnc", "datatype.rnc"), "datatype.rnc");
+    }
+
+    #[test]
+    fn amendments_obey_bounds_and_keep_attribute_additions_outside_child_content() {
+        let a = parse_amendments("x\t12.0\t12.1\tA\tadd\tattribute Count {xsd:int}?\tevidence").unwrap().remove(0);
+        for v in ["12.0", "12.1"] {
+            assert!(a.applies_to(v));
+        }
+        for v in ["11.0", "12.2", "13.0", "x"] {
+            assert!(!a.applies_to(v));
+        }
+        let mut ids = Ids::default();
+        let mut p = rnc::parse("A = (element Child {empty}* & element Other {empty}*)", &mut ids).unwrap().defines.remove(0).pattern;
+        let extra = rnc::parse(&format!("X = {}", a.pattern), &mut ids).unwrap().defines.remove(0).pattern;
+        add_content(&mut p, extra, &mut ids);
+        let Kind::Group(items) = p.kind else {
+            panic!("attribute must be outside the child interleave");
+        };
+        assert!(matches!(items[0].kind, Kind::Optional(_)));
+        assert!(matches!(items[1].kind, Kind::Interleave(_)));
     }
 }

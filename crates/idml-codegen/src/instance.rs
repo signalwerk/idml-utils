@@ -118,6 +118,22 @@ impl<'s> Generator<'s> {
             return Err(format!("{}: start is not an element", entry.file));
         };
         node.attrs.insert(0, ("xmlns:idPkg".to_owned(), crate::lower::PACKAGING_NS.to_owned()));
+        let mut namespaces = std::collections::BTreeMap::new();
+        for name in self.schema.reachable_from(entry) {
+            self.schema.def(&name)?.pattern.walk(&mut |p| {
+                if let Kind::Element(NameClass::Name(n), _) | Kind::Attribute(NameClass::Name(n), _) = &p.kind
+                    && let Some(prefix) = &n.prefix
+                    && prefix != "idPkg"
+                    && prefix != "xml"
+                {
+                    namespaces.insert(prefix.clone(), n.ns.clone());
+                }
+            });
+        }
+        for (prefix, uri) in namespaces {
+            node.attrs.push((format!("xmlns:{prefix}"), uri));
+        }
+
         let mut out = String::from("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n");
         write_node(&node, &mut out);
         Ok(out)
@@ -271,12 +287,15 @@ impl<'s> Generator<'s> {
             }
             Kind::Attribute(name, v) => {
                 self.covered.insert(p.id);
-                let NameClass::Name(n) = name else { return Err("attribute name class".to_owned()) };
+                let attribute_name = match name {
+                    NameClass::Name(n) => n.qualified(),
+                    NameClass::Any => format!("OracleAttribute{}", out.attrs.len()),
+                };
                 self.in_attribute = true;
                 let value = self.value(v, false);
                 self.in_attribute = false;
                 let value = value?;
-                out.attrs.push((n.local.clone(), value));
+                out.attrs.push((attribute_name, value));
             }
             Kind::Group(ps) => {
                 for q in ps {
@@ -565,7 +584,7 @@ fn qualified(name: &NameClass) -> Result<String, String> {
     match name {
         NameClass::Name(QName { prefix: Some(p), local, .. }) => Ok(format!("{p}:{local}")),
         NameClass::Name(QName { local, .. }) => Ok(local.clone()),
-        NameClass::Any => Err("wildcard element".to_owned()),
+        NameClass::Any => Ok("OracleElement".into()),
     }
 }
 

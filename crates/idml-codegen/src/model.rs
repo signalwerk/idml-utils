@@ -72,6 +72,8 @@ pub struct Trace {
     pub items: Vec<String>,
     /// `Since IDML 7.0 or earlier.`, from the schema history.
     pub since: Option<String>,
+    /// Evidence-backed corrections represented by this item.
+    pub amendments: Vec<String>,
 }
 
 /// An enumeration literal.

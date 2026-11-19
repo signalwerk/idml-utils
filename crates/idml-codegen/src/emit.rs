@@ -62,6 +62,11 @@ pub fn rust(model: &Model) -> Result<BTreeMap<String, String>, String> {
          pub const SCHEMA_SHA256: &str = {:?};\n",
         model.dom_version, model.indesign_version, model.sha256
     );
+    let _ = writeln!(
+        m,
+        "\n/// SHA-256 of the evidence-backed corrections, separate from SCHEMA_SHA256.\npub const AMENDMENTS_SHA256: &str = {:?};",
+        crate::schema::amendments_sha256()
+    );
     files.insert("mod.rs".to_owned(), m);
     Ok(files)
 }

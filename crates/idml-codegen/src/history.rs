@@ -660,7 +660,7 @@ impl History {
             out,
             "# moved in 7.0 to <A>/<B>: no longer allowed in its parent, but still nested in it in elements without an identity (no @Self)."
         );
-        let _ = writeln!(out, "item\tsince\thistory\tdefinition");
+        let _ = writeln!(out, "item\tsince\thistory\tdefinition\torigin\tevidence");
         for (id, states) in &self.items {
             let Some((first, previous)) = self.since(id) else { continue };
             let since = self.span(first, previous);
@@ -681,7 +681,16 @@ impl History {
                 .collect();
             let last = states.iter().rev().flatten().next().map_or("", String::as_str);
             let clean = |s: &str| s.replace(['\t', '\n'], " ");
-            let _ = writeln!(out, "{}\t{since}\t{}\t{}", clean(id), events.join(", "), clean(last));
+            let _ = writeln!(out, "{}\t{since}\t{}\t{}\tAdobe schema\t-", clean(id), events.join(", "), clean(last));
+        }
+        if let Ok(amendments) = crate::schema::amendments() {
+            for a in amendments {
+                let _ = writeln!(
+                    out,
+                    "amendment:{}:{}\t-\tapplies {}..={}\t{} {}\tamendment\t{}",
+                    a.id, a.target, a.min, a.max, a.action, a.pattern, a.evidence
+                );
+            }
         }
         out
     }
@@ -695,6 +704,7 @@ pub fn annotate(model: &mut crate::model::Model, schema: &crate::schema::Schema,
         _ => return Err("the newest schema snapshot must be the schemas the model is generated from".to_owned()),
     }
     let items = node_items(schema);
+    let amendments: BTreeMap<_, _> = crate::schema::amendments()?.into_iter().map(|a| (a.id.clone(), a)).collect();
     let mut missing = BTreeSet::new();
     for t in &mut model.types {
         let name = t.name.clone();
@@ -706,7 +716,20 @@ pub fn annotate(model: &mut crate::model::Model, schema: &crate::schema::Schema,
                 missing.insert(name.clone());
             }
             let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+            let amendment_ids: BTreeSet<_> = trace.nodes.iter().filter_map(|n| schema.amendment_nodes.get(n)).collect();
+            trace.amendments = amendment_ids
+                .iter()
+                .filter_map(|id| amendments.get(*id))
+                .map(|a| format!("{}: {} (applies {}..={})", a.id, a.evidence, a.min, a.max))
+                .collect();
             trace.since = history.describe(&refs);
+            if !trace.amendments.is_empty() {
+                let correction = format!("Schema amendment: {}", trace.amendments.join("; "));
+                trace.since = Some(match trace.since.take() {
+                    Some(s) => format!("{s} {correction}"),
+                    None => correction,
+                });
+            }
             if trace.since.is_none() && !ids.is_empty() {
                 missing.insert(name.clone());
             }
